@@ -1,0 +1,64 @@
+# Set default behavior to automatically normalize line endings
+* text=auto
+
+# JS and TS files should have LF line endings
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+
+# CSS files should have LF line endings
+*.css text eol=lf
+*.scss text eol=lf
+
+# HTML files should have LF line endings
+*.html text eol=lf
+
+# Markdown files should have LF line endings
+*.md text eol=lf
+
+# Config files should have LF line endings
+*.yml text eol=lf
+*.yaml text eol=lf
+*.config.js text eol=lf
+*.config.ts text eol=lf
+
+# Binary files should not be modified
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.svg binary
+*.ttf binary
+*.otf binary
+*.woff binary
+*.woff2 binary
+*.eot binary
+
+# Lottie animations should be treated as binary
+*.json binary
+*.lottie binary
+
+# Expo specific files
+*.expo binary
+*.expo-shared binary
+
+# Lock files should use LF
+yarn.lock text eol=lf
+package-lock.json text eol=lf
+
+# Shell scripts should use LF
+*.sh text eol=lf
+
+# Batch files should use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Denote all files that are truly binary and should not be modified
+*.zip binary
+*.gz binary
+*.tar binary
+*.tgz binary
