@@ -25,12 +25,12 @@ export default function HomeScreen() {
 
   const handleVendorTransaction = () => {
     setFabOpen(false);
-    router.push('/forms/vendor-transaction');
+    router.push('/forms/vendor-transaction-form');
   };
 
   const handleCustomerTransaction = () => {
     setFabOpen(false);
-    router.push('/forms/customer-transaction');
+    router.push('/forms/customer-transaction-form');
   };
 
   return (
@@ -137,7 +137,7 @@ export default function HomeScreen() {
       <View className="absolute bottom-20 right-6">
         <TouchableOpacity
           onPress={toggleFab}
-          className={`bg-blue-600 w-14 h-14 rounded-full justify-center items-center shadow-lg ${fabOpen ? 'rotate-45' : ''}`}
+          className={`bg-amber-800 w-14 h-14 rounded-full justify-center items-center shadow-lg ${fabOpen ? 'rotate-45' : ''}`}
         >
           <Ionicons name="add" size={30} color="white" />
         </TouchableOpacity>

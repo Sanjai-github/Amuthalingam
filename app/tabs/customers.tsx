@@ -414,12 +414,6 @@ export default function CustomersScreen() {
       <View className="bg-white pt-16 pb-4 px-4 shadow-sm">
         <View className="flex-row justify-between items-center">
           <Text className="text-xl font-bold text-gray-800">Customers</Text>
-          <TouchableOpacity 
-            className="bg-blue-600 p-2 rounded-full"
-            onPress={handleAddTransaction}
-          >
-            <Ionicons name="add" size={24} color="white" />
-          </TouchableOpacity>
         </View>
       </View>
       
