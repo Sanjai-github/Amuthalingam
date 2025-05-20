@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import LottieView from 'lottie-react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { authService } from '../../Firebase';
 
 export default function ForgotPasswordScreen() {
   const router = useRouter();
@@ -25,7 +26,7 @@ export default function ForgotPasswordScreen() {
   const [emailSent, setEmailSent] = useState(false);
   const [countdown, setCountdown] = useState(0);
 
-  const handleResetPassword = () => {
+  const handleResetPassword = async () => {
     // Basic validation
     if (!email) {
       Alert.alert('Error', 'Please enter your email address');
@@ -39,16 +40,25 @@ export default function ForgotPasswordScreen() {
       return;
     }
 
-    // TODO: Implement Firebase password reset
     setIsLoading(true);
-    console.log('Password reset requested for:', email);
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const { success, error } = await authService.resetPassword(email);
+      
+      if (error) {
+        Alert.alert('Error', error);
+        setIsLoading(false);
+        return;
+      }
+      
       setEmailSent(true);
       startCountdown();
-    }, 1500);
+    } catch (error) {
+      console.error('Password reset error:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const startCountdown = () => {
@@ -65,12 +75,23 @@ export default function ForgotPasswordScreen() {
     }, 1000);
   };
 
-  const handleResendEmail = () => {
+  const handleResendEmail = async () => {
     if (countdown > 0) return;
     
-    // TODO: Resend password reset email
-    startCountdown();
-    Alert.alert('Email Sent', 'Password reset link has been resent to your email');
+    try {
+      const { success, error } = await authService.resetPassword(email);
+      
+      if (error) {
+        Alert.alert('Error', error);
+        return;
+      }
+      
+      startCountdown();
+      Alert.alert('Email Sent', 'Password reset link has been resent to your email');
+    } catch (error) {
+      console.error('Password reset error:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    }
   };
 
   const handleBackToLogin = () => {

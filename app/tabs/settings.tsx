@@ -10,9 +10,12 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
+import { useRouter } from 'expo-router';
 import CustomTabBar from '../../components/CustomTabBar';
 
 export default function SettingsScreen() {
+  const router = useRouter();
+  
   // Settings state
   const [darkMode, setDarkMode] = useState(false);
   const [notifications, setNotifications] = useState(true);
@@ -185,6 +188,25 @@ export default function SettingsScreen() {
                 <Ionicons name="trash-outline" size={20} color="#ef4444" />
               </View>
               <Text className="text-red-600 font-medium">Reset All Data</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+          </TouchableOpacity>
+        </View>
+        
+        {/* Account Section */}
+        <Text className="text-lg font-semibold text-gray-800 mb-3">Account</Text>
+        
+        <View className="bg-white rounded-xl shadow-sm mb-6">
+          {/* Logout Button */}
+          <TouchableOpacity 
+            className="flex-row justify-between items-center p-4"
+            onPress={() => router.push('/authentication/logout')}
+          >
+            <View className="flex-row items-center">
+              <View className="bg-red-100 p-2 rounded-full mr-3">
+                <Ionicons name="log-out-outline" size={20} color="#ef4444" />
+              </View>
+              <Text className="text-red-600 font-medium">Logout</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
           </TouchableOpacity>

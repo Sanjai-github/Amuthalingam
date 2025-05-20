@@ -4,34 +4,55 @@
     "slug": "Tracker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/icons/navigation/home.svg",
     "scheme": "tracker",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "extra": {
+      "eas": {
+        "projectId": "tracker-app"
+      }
+    },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tracker.app",
+      "config": {
+        "googleSignIn": {
+          "reservedClientId": "com.googleusercontent.apps.799309050681-goqecd67iud9abdjhc38ajbppoicuv1a"
+        }
+      }
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/icons/navigation/home.svg",
         "backgroundColor": "#ffffff"
       },
+      "package": "com.tracker.app",
+      "googleServicesFile": "./google-services.json",
       "edgeToEdgeEnabled": true
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/icons/navigation/home.svg"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/animations/splash_screen.json",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          }
         }
       ]
     ],

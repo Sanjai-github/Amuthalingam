@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -8,12 +8,15 @@ import {
   KeyboardAvoidingView, 
   Platform,
   Alert,
-  ScrollView
+  ScrollView,
+  ActivityIndicator
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import LottieView from 'lottie-react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { authService } from '../../Firebase';
+import { User } from 'firebase/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -23,26 +26,35 @@ export default function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     if (!email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
     
-    // TODO: Implement Firebase authentication
     setIsLoading(true);
-    console.log('Login attempt with:', { email, password });
     
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      const { user, error } = await authService.loginUser(email, password);
+      
+      if (error || !user) {
+        Alert.alert('Login Error', error || 'Authentication failed');
+        setIsLoading(false);
+        return;
+      }
+      
+      console.log('User logged in successfully:', user.uid);
       // Navigate to home after successful login
       router.replace('/tabs/home');
-    }, 1500);
+    } catch (error) {
+      console.error('Login error:', error);
+      Alert.alert('Login Error', 'An unexpected error occurred. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleForgotPassword = () => {
-    // TODO: Implement forgot password flow
     router.push('/authentication/forgot-password');
   };
 
@@ -144,6 +156,8 @@ export default function LoginScreen() {
             </LinearGradient>
           )}
         </TouchableOpacity>
+        
+
 
         {/* Sign Up Link */}
         <View style={styles.signUpContainer}>
@@ -190,6 +204,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 30,
   },
+
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',

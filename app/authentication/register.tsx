@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -10,12 +10,15 @@ import {
   Alert,
   ScrollView,
   TouchableWithoutFeedback,
-  Keyboard
+  Keyboard,
+  ActivityIndicator
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import LottieView from 'lottie-react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { authService } from '../../Firebase';
+import { User } from 'firebase/auth';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -24,25 +27,17 @@ export default function RegisterScreen() {
   // Form fields
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
-  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
   
   // UI states
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     // Basic validation
-    if (!fullName || !email || !phone || !password || !confirmPassword) {
+    if (!fullName || !email || !password) {
       Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      Alert.alert('Error', 'Passwords do not match');
       return;
     }
 
@@ -56,16 +51,32 @@ export default function RegisterScreen() {
       return;
     }
 
-    // TODO: Implement Firebase registration
     setIsLoading(true);
-    console.log('Registration attempt with:', { fullName, email, phone });
     
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      // Register user with Firebase
+      const { user, error } = await authService.registerUser(email, password, fullName);
+      
+      if (error) {
+        Alert.alert('Registration Error', error);
+        setIsLoading(false);
+        return;
+      }
+      
+      console.log('User registered successfully:', user?.uid || 'User created');
+      
+      // Show success message
+      Alert.alert(
+        'Registration Successful', 
+        'Your account has been created successfully. Please login with your credentials.',
+        [{ text: 'OK', onPress: () => router.replace('/authentication/login') }]
+      );
+    } catch (error) {
+      console.error('Registration error:', error);
+      Alert.alert('Registration Error', 'An unexpected error occurred. Please try again.');
+    } finally {
       setIsLoading(false);
-      // Navigate to home after successful registration
-      router.replace('/tabs/home');
-    }, 1500);
+    }
   };
 
   const handleSignIn = () => {
@@ -125,18 +136,7 @@ export default function RegisterScreen() {
             />
           </View>
 
-          {/* Phone Input */}
-          <View style={styles.inputContainer}>
-            <Ionicons name="call-outline" size={20} color="#666" style={styles.inputIcon} />
-            <TextInput
-              style={styles.input}
-              placeholder="Phone Number"
-              placeholderTextColor="#999"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
-            />
-          </View>
+          {/* Phone input removed as requested */}
 
           {/* Password Input */}
           <View style={styles.inputContainer}>
@@ -161,28 +161,7 @@ export default function RegisterScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Confirm Password Input */}
-          <View style={[styles.inputContainer, { marginBottom: 15 }]}>
-            <Ionicons name="lock-closed-outline" size={20} color="#666" style={styles.inputIcon} />
-            <TextInput
-              style={[styles.input, styles.passwordInput]}
-              placeholder="Confirm Password"
-              placeholderTextColor="#999"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-              secureTextEntry={!showConfirmPassword}
-            />
-            <TouchableOpacity 
-              onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-              style={styles.eyeIcon}
-            >
-              <Ionicons 
-                name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'} 
-                size={22} 
-                color="#666" 
-              />
-            </TouchableOpacity>
-          </View>
+          {/* Confirm Password input removed as requested */}
 
           {/* Terms and Conditions */}
           <View style={styles.termsContainer}>
@@ -224,6 +203,8 @@ export default function RegisterScreen() {
               </LinearGradient>
             )}
           </TouchableOpacity>
+          
+
 
           {/* Sign In Link */}
           <View style={styles.signInContainer}>
@@ -254,6 +235,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 10,
   },
+
   animation: {
     width: '100%',
     height: '100%',

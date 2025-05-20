@@ -128,7 +128,7 @@ export default function VendorsScreen() {
   }, []);
 
   const handleAddTransaction = () => {
-    router.push('/forms/vendor-transaction');
+    router.push('/forms/vendor-transaction-form');
   };
 
   const handleVendorSelect = (vendor: Vendor) => {

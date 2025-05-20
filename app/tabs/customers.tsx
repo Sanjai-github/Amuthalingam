@@ -6,17 +6,18 @@ import {
   ScrollView, 
   FlatList,
   TextInput,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import LottieView from 'lottie-react-native';
 import CustomTabBar from '../../components/CustomTabBar';
+import { getCustomers, getCustomerTransactions, getSingleCustomerOutstandingBalance } from '../../Firebase/customerService';
 
 // Define interfaces for our data structures
 interface Payment {
-  id: string;
   date: string;
   amount: number;
 }
@@ -26,21 +27,29 @@ interface CustomerTransaction {
   date: string;
   items: Array<{
     name: string;
-    quantity: string;
-    unitPrice: string;
+    quantity: number;
+    unit_price: number;
   }>;
-  materialAmount: number;
-  totalAmount: number;
+  material_amount: number;
+  total_amount: number;
   payments: Payment[];
+  total_payments: number;
+  outstanding_amount: number;
   balance: number;
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 interface Customer {
   id: string;
   name: string;
-  totalSales: number;
-  totalDue: number;
-  transactions: CustomerTransaction[];
+  phone?: string;
+  address?: string;
+  totalSales?: number;
+  totalDue?: number;
+  transactions?: any[];
+  createdAt?: any;
+  updatedAt?: any;
 }
 
 // Dummy data for development
@@ -144,7 +153,7 @@ export default function CustomersScreen() {
   }, []);
 
   const handleAddTransaction = () => {
-    router.push('/forms/customer-transaction');
+    router.push('/forms/customer-transaction-form');
   };
 
   const handleCustomerSelect = (customer: Customer) => {
@@ -204,20 +213,20 @@ export default function CustomersScreen() {
               <View className="flex-row justify-between items-center mb-2">
                 <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
                 <View className="bg-blue-100 px-2 py-1 rounded-full">
-                  <Text className="text-blue-800 font-medium">{item.transactions.length} Transactions</Text>
+                  <Text className="text-blue-800 font-medium">{item.transactions?.length || 0} Transactions</Text>
                 </View>
               </View>
               
               <View className="flex-row justify-between">
                 <View>
                   <Text className="text-gray-500 text-sm">Total Sales</Text>
-                  <Text className="text-gray-800 font-bold">₹{item.totalSales.toLocaleString()}</Text>
+                  <Text className="text-gray-800 font-bold">₹{item.totalSales?.toLocaleString() || '0'}</Text>
                 </View>
                 
                 <View>
                   <Text className="text-gray-500 text-sm">Balance Due</Text>
-                  {item.totalDue > 0 ? (
-                    <Text className="text-red-600 font-bold">₹{item.totalDue.toLocaleString()}</Text>
+                  {(item.totalDue || 0) > 0 ? (
+                    <Text className="text-red-600 font-bold">₹{item.totalDue?.toLocaleString() || '0'}</Text>
                   ) : (
                     <Text className="text-green-600 font-bold">Paid</Text>
                   )}
@@ -265,13 +274,13 @@ export default function CustomersScreen() {
           <View className="flex-row justify-between mt-2">
             <View>
               <Text className="text-gray-500 text-sm">Total Sales</Text>
-              <Text className="text-gray-800 font-bold">₹{selectedCustomer.totalSales.toLocaleString()}</Text>
+              <Text className="text-gray-800 font-bold">₹{selectedCustomer.totalSales?.toLocaleString() || '0'}</Text>
             </View>
             
             <View>
               <Text className="text-gray-500 text-sm">Balance Due</Text>
-              {selectedCustomer.totalDue > 0 ? (
-                <Text className="text-red-600 font-bold">₹{selectedCustomer.totalDue.toLocaleString()}</Text>
+              {(selectedCustomer.totalDue || 0) > 0 ? (
+                <Text className="text-red-600 font-bold">₹{selectedCustomer.totalDue?.toLocaleString() || '0'}</Text>
               ) : (
                 <Text className="text-green-600 font-bold">Paid</Text>
               )}
@@ -342,7 +351,7 @@ export default function CustomersScreen() {
             
             <View>
               <Text className="text-gray-500 text-sm">Total Amount</Text>
-              <Text className="text-gray-800 font-bold">₹{selectedTransaction.totalAmount.toLocaleString()}</Text>
+              <Text className="text-gray-800 font-bold">₹{selectedTransaction.total_amount.toLocaleString()}</Text>
             </View>
           </View>
         </View>
@@ -354,22 +363,22 @@ export default function CustomersScreen() {
             {selectedTransaction.items.map((item, index) => (
               <View key={index} className="flex-row justify-between mb-2">
                 <Text className="text-gray-700">
-                  {item.name} ({item.quantity} × ₹{item.unitPrice})
+                  {item.name} ({item.quantity} × ₹{item.unit_price})
                 </Text>
                 <Text className="text-gray-700 font-medium">
-                  ₹{(parseFloat(item.quantity) * parseFloat(item.unitPrice)).toLocaleString()}
+                  ₹{(item.quantity * item.unit_price).toLocaleString()}
                 </Text>
               </View>
             ))}
             
             <View className="border-t border-gray-200 mt-2 pt-2 flex-row justify-between">
               <Text className="text-gray-700 font-medium">Material Amount</Text>
-              <Text className="text-gray-700 font-medium">₹{selectedTransaction.materialAmount.toLocaleString()}</Text>
+              <Text className="text-gray-700 font-medium">₹{selectedTransaction.material_amount.toLocaleString()}</Text>
             </View>
             
             <View className="border-t border-gray-200 mt-2 pt-2 flex-row justify-between">
               <Text className="text-gray-800 font-bold">Total</Text>
-              <Text className="text-gray-800 font-bold">₹{selectedTransaction.totalAmount.toLocaleString()}</Text>
+              <Text className="text-gray-800 font-bold">₹{selectedTransaction.total_amount.toLocaleString()}</Text>
             </View>
           </View>
         </View>

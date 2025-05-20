@@ -35,7 +35,7 @@ export default function SplashScreen() {
 
   const handleGetStarted = () => {
     // Navigate to home screen
-    router.push("/tabs/home");
+    router.push("/authentication/login");
   };
 
   return (

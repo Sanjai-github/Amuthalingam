@@ -3,10 +3,12 @@ import { useEffect } from "react";
 import { useFonts } from "expo-font";
 import * as SplashScreen from "expo-splash-screen";
 import "../global.css";
+import { AuthProvider } from "../Firebase/AuthContext";
+import AuthGuard from "../components/AuthGuard";
+import { PaperProvider } from "react-native-paper";
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
-
 
 
 export default function RootLayout() {
@@ -26,15 +28,21 @@ export default function RootLayout() {
   }
 
   return (
-    <Stack 
-      screenOptions={{
-        headerShown: false,
-        animation: "fade",
-        animationDuration: 50,
-        gestureEnabled: true,
-        gestureDirection: "horizontal",
-        presentation: "card"
-      }}
-    />
+    <PaperProvider>
+      <AuthProvider>
+        <AuthGuard>
+          <Stack 
+            screenOptions={{
+              headerShown: false,
+              animation: "fade",
+              animationDuration: 50,
+              gestureEnabled: true,
+              gestureDirection: "horizontal",
+              presentation: "card"
+            }}
+          />
+        </AuthGuard>
+      </AuthProvider>
+    </PaperProvider>
   );
 }
