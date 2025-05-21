@@ -17,15 +17,10 @@ import { StatusBar } from 'expo-status-bar';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 
-// Sample customer data for autocomplete
-const sampleCustomers = [
-  'Rahul Sharma',
-  'Priya Patel',
-  'Vikram Singh',
-  'Neha Gupta',
-  'Amit Kumar',
-  'Sneha Reddy'
-];
+// Import Firebase services
+import { searchCustomers, addCustomerTransaction, addCustomer } from '../../Firebase/customerService';
+
+// We'll use Firebase searchCustomers instead of sample data
 
 // Sample item suggestions
 const sampleItems = [
@@ -163,16 +158,30 @@ export default function CustomerTransactionScreen() {
     }
   };
 
-  // Filter customers based on input
+  // Filter customers based on input using Firebase search
   useEffect(() => {
-    if (customerName.length > 0) {
-      const filtered = sampleCustomers.filter(customer => 
-        customer.toLowerCase().includes(customerName.toLowerCase())
-      );
-      setCustomerSuggestions(filtered);
-    } else {
-      setCustomerSuggestions([]);
-    }
+    const fetchCustomers = async () => {
+      if (customerName.length > 0) {
+        try {
+          const result = await searchCustomers(customerName);
+          if (result.error) {
+            console.error('Error searching customers:', result.error);
+            return;
+          }
+          
+          // Map customer objects to just their names for the dropdown
+          const customerNames = result.data.map(customer => customer.name);
+          setCustomerSuggestions(customerNames);
+        } catch (error) {
+          console.error('Error searching customers:', error);
+          setCustomerSuggestions([]);
+        }
+      } else {
+        setCustomerSuggestions([]);
+      }
+    };
+    
+    fetchCustomers();
   }, [customerName]);
 
   // Filter items based on input
@@ -189,7 +198,7 @@ export default function CustomerTransactionScreen() {
   };
 
   // Handle save transaction
-  const handleSave = () => {
+  const handleSave = async () => {
     // Validate form
     if (!customerName.trim()) {
       Alert.alert('Error', 'Please enter a customer name');
@@ -209,15 +218,76 @@ export default function CustomerTransactionScreen() {
     // Show saving indicator
     setIsSaving(true);
 
-    // Simulate saving to database
-    setTimeout(() => {
-      setIsSaving(false);
+    try {
+      // Format the items data for Firebase
+      const formattedItems = items.map(item => ({
+        name: item.name,
+        quantity: parseFloat(item.quantity),
+        unit_price: parseFloat(item.unitPrice)
+      }));
+
+      // Format the payments data for Firebase
+      const formattedPayments = payments.map(payment => ({
+        date: payment.date,
+        amount: parseFloat(payment.amount)
+      }));
+
+      // Prepare transaction data
+      const transactionData = {
+        date: saleDate.toISOString().split('T')[0],
+        items: formattedItems,
+        material_amount: getMaterialAmount(),
+        payments: formattedPayments
+      };
+
+      // First, search for the customer to see if it exists
+      const customerSearchResult = await searchCustomers(customerName);
+      let customerId;
+
+      if (customerSearchResult.data.length > 0) {
+        // Find exact match for customer name
+        const exactMatch = customerSearchResult.data.find(
+          customer => customer.name.toLowerCase() === customerName.toLowerCase()
+        );
+        
+        if (exactMatch) {
+          customerId = exactMatch.id;
+        } else {
+          // Create new customer if no exact match
+          const newCustomerResult = await addCustomer({ name: customerName });
+          if (newCustomerResult.error) {
+            throw new Error(`Failed to create customer: ${newCustomerResult.error}`);
+          }
+          customerId = newCustomerResult.id;
+        }
+      } else {
+        // Create new customer
+        const newCustomerResult = await addCustomer({ name: customerName });
+        if (newCustomerResult.error) {
+          throw new Error(`Failed to create customer: ${newCustomerResult.error}`);
+        }
+        customerId = newCustomerResult.id;
+      }
+
+      // Add transaction to customer
+      const result = await addCustomerTransaction(customerId, transactionData);
+      
+      if (result.error) {
+        throw new Error(`Failed to save transaction: ${result.error}`);
+      }
+
+      // Success
       Alert.alert(
         'Success', 
         'Customer transaction saved successfully!',
         [{ text: 'OK', onPress: () => router.back() }]
       );
-    }, 1000);
+    } catch (error) {
+      console.error('Error saving customer transaction:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save transaction');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

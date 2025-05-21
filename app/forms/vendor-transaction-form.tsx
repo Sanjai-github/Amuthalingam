@@ -18,15 +18,10 @@ import { StatusBar } from 'expo-status-bar';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { LinearGradient } from 'expo-linear-gradient';
 
-// Sample vendor data for autocomplete
-const sampleVendors = [
-  'Acme Supplies',
-  'BuildMart',
-  'City Builders',
-  'Decor World',
-  'Elite Materials',
-  'Future Construction'
-];
+// Import Firebase services
+import { searchVendors, addVendorTransaction, addVendor } from '../../Firebase/vendorService';
+
+// We'll use Firebase searchVendors instead of sample data
 
 // Sample item suggestions
 const sampleItems = [
@@ -121,16 +116,30 @@ export default function VendorTransactionScreen() {
     }
   };
 
-  // Filter vendors based on input
+  // Filter vendors based on input using Firebase search
   useEffect(() => {
-    if (vendorName.length > 0) {
-      const filtered = sampleVendors.filter(vendor => 
-        vendor.toLowerCase().includes(vendorName.toLowerCase())
-      );
-      setVendorSuggestions(filtered);
-    } else {
-      setVendorSuggestions([]);
-    }
+    const fetchVendors = async () => {
+      if (vendorName.length > 0) {
+        try {
+          const result = await searchVendors(vendorName);
+          if (result.error) {
+            console.error('Error searching vendors:', result.error);
+            return;
+          }
+          
+          // Map vendor objects to just their names for the dropdown
+          const vendorNames = result.data.map(vendor => vendor.name);
+          setVendorSuggestions(vendorNames);
+        } catch (error) {
+          console.error('Error searching vendors:', error);
+          setVendorSuggestions([]);
+        }
+      } else {
+        setVendorSuggestions([]);
+      }
+    };
+    
+    fetchVendors();
   }, [vendorName]);
 
   // Filter items based on input
@@ -147,7 +156,7 @@ export default function VendorTransactionScreen() {
   };
 
   // Handle save transaction
-  const handleSave = () => {
+  const handleSave = async () => {
     // Validate form
     if (!vendorName.trim()) {
       Alert.alert('Error', 'Please enter a vendor name');
@@ -162,15 +171,70 @@ export default function VendorTransactionScreen() {
     // Show saving indicator
     setIsSaving(true);
 
-    // Simulate saving to database
-    setTimeout(() => {
-      setIsSaving(false);
+    try {
+      // Format the items data for Firebase
+      const formattedItems = items.map(item => ({
+        name: item.name,
+        quantity: parseFloat(item.quantity),
+        unit_price: parseFloat(item.unitPrice)
+      }));
+
+      // Prepare transaction data
+      const transactionData = {
+        date: purchaseDate.toISOString().split('T')[0],
+        items: formattedItems,
+        material_amount: getMaterialAmount(),
+        transport_charge: parseFloat(transportCharge || '0')
+      };
+
+      // First, search for the vendor to see if it exists
+      const vendorSearchResult = await searchVendors(vendorName);
+      let vendorId;
+
+      if (vendorSearchResult.data.length > 0) {
+        // Find exact match for vendor name
+        const exactMatch = vendorSearchResult.data.find(
+          vendor => vendor.name.toLowerCase() === vendorName.toLowerCase()
+        );
+        
+        if (exactMatch) {
+          vendorId = exactMatch.id;
+        } else {
+          // Create new vendor if no exact match
+          const newVendorResult = await addVendor({ name: vendorName });
+          if (newVendorResult.error) {
+            throw new Error(`Failed to create vendor: ${newVendorResult.error}`);
+          }
+          vendorId = newVendorResult.id;
+        }
+      } else {
+        // Create new vendor
+        const newVendorResult = await addVendor({ name: vendorName });
+        if (newVendorResult.error) {
+          throw new Error(`Failed to create vendor: ${newVendorResult.error}`);
+        }
+        vendorId = newVendorResult.id;
+      }
+
+      // Add transaction to vendor
+      const result = await addVendorTransaction(vendorId, transactionData);
+      
+      if (result.error) {
+        throw new Error(`Failed to save transaction: ${result.error}`);
+      }
+
+      // Success
       Alert.alert(
         'Success', 
         'Transaction saved successfully!',
         [{ text: 'OK', onPress: () => router.back() }]
       );
-    }, 1000);
+    } catch (error) {
+      console.error('Error saving transaction:', error);
+      Alert.alert('Error', error instanceof Error ? error.message : 'Failed to save transaction');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (

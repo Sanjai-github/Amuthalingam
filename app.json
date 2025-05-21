@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Tracker",
-    "slug": "Tracker",
+    "slug": "tracker",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icons/navigation/home.svg",
@@ -10,8 +10,9 @@
     "newArchEnabled": true,
     "extra": {
       "eas": {
-        "projectId": "tracker-app"
-      }
+        "projectId": "44358d90-0693-4692-8977-6f493af1a49f"
+      },
+      "router": {}
     },
     "ios": {
       "supportsTablet": true,
@@ -58,6 +59,7 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "owner": "sanjai-expo"
   }
 }

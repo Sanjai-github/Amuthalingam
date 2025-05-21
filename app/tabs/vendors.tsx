@@ -6,7 +6,8 @@ import {
   ScrollView, 
   FlatList,
   TextInput,
-  ActivityIndicator
+  ActivityIndicator,
+  RefreshControl
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
@@ -14,7 +15,17 @@ import { StatusBar } from 'expo-status-bar';
 import LottieView from 'lottie-react-native';
 import CustomTabBar from '../../components/CustomTabBar';
 
+// Import Firebase services
+import { getVendors, getVendorTransactions, getSingleVendorOutstandingBalance } from '../../Firebase/vendorService';
+
 // Define interfaces for our data structures
+// Firebase data structure for vendor transaction items
+interface FirebaseVendorTransactionItem {
+  name: string;
+  quantity: number | string;
+  unit_price: number | string;
+}
+
 interface VendorTransaction {
   id: string;
   date: string;
@@ -36,107 +47,123 @@ interface Vendor {
   transactions: VendorTransaction[];
 }
 
-// Dummy data for development
-const dummyVendors: Vendor[] = [
-  {
-    id: '1',
-    name: 'Acme Supplies',
-    totalSpent: 12500,
-    totalOwed: 2500,
-    transactions: [
-      {
-        id: 't1',
-        date: '2025-05-15',
-        items: [
-          { name: 'Cement', quantity: '10', unitPrice: '450' },
-          { name: 'Sand', quantity: '5', unitPrice: '300' }
-        ],
-        materialAmount: 6000,
-        transportCharge: 500,
-        totalAmount: 6500
-      },
-      {
-        id: 't2',
-        date: '2025-05-10',
-        items: [
-          { name: 'Bricks', quantity: '1000', unitPrice: '6' }
-        ],
-        materialAmount: 6000,
-        transportCharge: 0,
-        totalAmount: 6000
-      }
-    ]
-  },
-  {
-    id: '2',
-    name: 'BuildMart',
-    totalSpent: 8750,
-    totalOwed: 0,
-    transactions: [
-      {
-        id: 't3',
-        date: '2025-05-12',
-        items: [
-          { name: 'Tiles', quantity: '50', unitPrice: '75' },
-          { name: 'Grout', quantity: '2', unitPrice: '250' }
-        ],
-        materialAmount: 4250,
-        transportCharge: 300,
-        totalAmount: 4550
-      },
-      {
-        id: 't4',
-        date: '2025-05-05',
-        items: [
-          { name: 'Paint', quantity: '5', unitPrice: '750' },
-          { name: 'Brushes', quantity: '3', unitPrice: '150' }
-        ],
-        materialAmount: 4200,
-        transportCharge: 0,
-        totalAmount: 4200
-      }
-    ]
-  }
-];
+// We'll fetch real vendor data from Firebase instead of using dummy data
 
 export default function VendorsScreen() {
   const router = useRouter();
-  const [vendors, setVendors] = useState<Vendor[]>(dummyVendors);
+  const [vendors, setVendors] = useState<Vendor[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<Vendor | null>(null);
+  const [vendorTransactions, setVendorTransactions] = useState<VendorTransaction[]>([]);
+  const [loadingTransactions, setLoadingTransactions] = useState(false);
 
   // Filter vendors based on search query
   const filteredVendors = vendors.filter(vendor => 
     vendor.name.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  // In a real app, this would fetch vendors from Firebase
+  // Fetch vendors from Firebase
+  const fetchVendors = async () => {
+    try {
+      setIsLoading(true);
+      const result = await getVendors();
+      
+      if (result.error) {
+        console.error('Error fetching vendors:', result.error);
+        return;
+      }
+      
+      // Transform the data to match our Vendor interface
+      const vendorsList: Vendor[] = await Promise.all(result.data.map(async (vendor) => {
+        // Get outstanding balance for each vendor
+        const balanceResult = await getSingleVendorOutstandingBalance(vendor.id);
+        const totalOwed = balanceResult.error ? 0 : balanceResult.data;
+        
+        // Get all transactions to calculate total spent
+        const transactionsResult = await getVendorTransactions(vendor.id);
+        let totalSpent = 0;
+        
+        if (!transactionsResult.error && transactionsResult.data.length > 0) {
+          // Sum up all transaction total amounts
+          totalSpent = transactionsResult.data.reduce(
+            (sum, transaction) => sum + (transaction.total_amount || 0), 
+            0
+          );
+        }
+        
+        return {
+          id: vendor.id,
+          name: vendor.name,
+          totalSpent: totalSpent,
+          totalOwed: totalOwed,
+          transactions: [] // We'll load transactions only when a vendor is selected
+        };
+      }));
+      
+      setVendors(vendorsList);
+    } catch (error) {
+      console.error('Error fetching vendors:', error);
+    } finally {
+      setIsLoading(false);
+      setRefreshing(false);
+    }
+  };
+  
+  // Fetch vendors on component mount
   useEffect(() => {
-    // Quick initialization without artificial delay
-    setIsLoading(false);
-    
-    // When implementing Firebase, you would fetch vendors here
-    // Example:
-    // const fetchVendors = async () => {
-    //   const vendorsSnapshot = await firebase.firestore().collection('Vendors').get();
-    //   const vendorsData = vendorsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-    //   setVendors(vendorsData);
-    //   setIsLoading(false);
-    // };
-    // fetchVendors();
+    fetchVendors();
   }, []);
+  
+  // Handle refresh
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchVendors();
+  };
 
   const handleAddTransaction = () => {
     router.push('/forms/vendor-transaction-form');
   };
 
-  const handleVendorSelect = (vendor: Vendor) => {
-    setSelectedVendor(vendor);
+  const handleVendorSelect = async (vendor: Vendor) => {
+    try {
+      setSelectedVendor(vendor);
+      setLoadingTransactions(true);
+      
+      // Fetch transactions for the selected vendor
+      const result = await getVendorTransactions(vendor.id);
+      
+      if (result.error) {
+        console.error('Error fetching vendor transactions:', result.error);
+        return;
+      }
+      
+      // Transform the data to match our VendorTransaction interface
+      const transformedTransactions: VendorTransaction[] = result.data.map(transaction => ({
+        id: transaction.id,
+        date: transaction.date,
+        items: transaction.items.map((item: FirebaseVendorTransactionItem) => ({
+          name: item.name,
+          quantity: item.quantity.toString(),
+          unitPrice: item.unit_price.toString()
+        })),
+        materialAmount: transaction.material_amount,
+        transportCharge: transaction.transport_charge || 0,
+        totalAmount: transaction.total_amount
+      }));
+      
+      setVendorTransactions(transformedTransactions);
+    } catch (error) {
+      console.error('Error selecting vendor:', error);
+    } finally {
+      setLoadingTransactions(false);
+    }
   };
 
   const handleBackToList = () => {
     setSelectedVendor(null);
+    setVendorTransactions([]);
   };
 
   // Vendor List View
@@ -159,39 +186,44 @@ export default function VendorsScreen() {
           )}
         </View>
       </View>
-
+      
       {/* Vendors List */}
       {isLoading ? (
         <View className="flex-1 justify-center items-center">
-          <ActivityIndicator size="large" color="#d88c9a" />
+          <ActivityIndicator size="large" color="#ca7353" />
+          <Text className="mt-2 text-gray-600">Loading vendors...</Text>
         </View>
       ) : filteredVendors.length > 0 ? (
         <FlatList
           data={filteredVendors}
           keyExtractor={(item) => item.id}
-          className="px-4"
+          className="px-4 pt-2"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={["#ca7353"]}
+              tintColor="#ca7353"
+            />
+          }
           renderItem={({ item }) => (
             <TouchableOpacity 
-              className="bg-white rounded-xl p-4 mb-3 shadow-sm border border-gray-100"
+              className="bg-white p-4 rounded-xl mb-3 shadow-sm border border-gray-100"
               onPress={() => handleVendorSelect(item)}
             >
-              <View className="flex-row justify-between items-center mb-2">
-                <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
-                <View className="bg-orange-100 px-2 py-1 rounded-full">
-                  <Text className="text-orange-800 font-medium">{item.transactions.length} Transactions</Text>
-                </View>
-              </View>
-              
-              <View className="flex-row justify-between">
+              <View className="flex-row justify-between items-center">
                 <View>
-                  <Text className="text-gray-500 text-sm">Total Spent</Text>
-                  <Text className="text-gray-800 font-bold">₹{item.totalSpent.toLocaleString()}</Text>
+                  <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
+                  <Text className="text-gray-500">Total Spent: ₹{item.totalSpent.toLocaleString()}</Text>
                 </View>
                 
-                {item.totalOwed > 0 && (
-                  <View>
-                    <Text className="text-gray-500 text-sm">Outstanding</Text>
-                    <Text className="text-red-600 font-bold">₹{item.totalOwed.toLocaleString()}</Text>
+                {item.totalOwed > 0 ? (
+                  <View className="bg-red-100 px-3 py-1 rounded-full">
+                    <Text className="text-red-600 font-medium">₹{item.totalOwed.toLocaleString()}</Text>
+                  </View>
+                ) : (
+                  <View className="bg-green-100 px-3 py-1 rounded-full">
+                    <Text className="text-green-600 font-medium">Paid</Text>
                   </View>
                 )}
               </View>
@@ -251,39 +283,57 @@ export default function VendorsScreen() {
         
         {/* Transaction List */}
         <Text className="px-4 text-lg font-semibold text-gray-800 mb-2">Transaction History</Text>
-        <FlatList
-          data={selectedVendor.transactions}
-          keyExtractor={(item) => item.id}
-          className="px-4"
-          renderItem={({ item }) => (
-            <View className="bg-white rounded-xl p-4 mb-3 shadow-sm border border-gray-100">
-              <View className="flex-row justify-between items-center mb-3">
-                <Text className="font-medium text-gray-800">{item.date}</Text>
-                <Text className="font-bold text-gray-800">₹{item.totalAmount.toLocaleString()}</Text>
+        
+        {loadingTransactions ? (
+          <View className="flex-1 justify-center items-center">
+            <ActivityIndicator size="large" color="#ca7353" />
+            <Text className="mt-2 text-gray-600">Loading transactions...</Text>
+          </View>
+        ) : vendorTransactions.length > 0 ? (
+          <FlatList
+            data={vendorTransactions}
+            keyExtractor={(item) => item.id}
+            className="px-4"
+            renderItem={({ item }) => (
+              <View className="bg-white rounded-xl p-4 mb-3 shadow-sm border border-gray-100">
+                <View className="flex-row justify-between items-center mb-3">
+                  <Text className="font-medium text-gray-800">{item.date}</Text>
+                  <Text className="font-bold text-gray-800">₹{item.totalAmount.toLocaleString()}</Text>
+                </View>
+                
+                {/* Items */}
+                {item.items.map((product, index) => (
+                  <View key={index} className="flex-row justify-between mb-1">
+                    <Text className="text-gray-600">
+                      {product.name} ({product.quantity} × ₹{product.unitPrice})
+                    </Text>
+                    <Text className="text-gray-600">
+                      ₹{(parseFloat(product.quantity) * parseFloat(product.unitPrice)).toLocaleString()}
+                    </Text>
+                  </View>
+                ))}
+                
+                {/* Additional Charges */}
+                {item.transportCharge > 0 && (
+                  <View className="flex-row justify-between mt-1">
+                    <Text className="text-gray-600">Transport Charge</Text>
+                    <Text className="text-gray-600">₹{item.transportCharge.toLocaleString()}</Text>
+                  </View>
+                )}
               </View>
-              
-              {/* Items */}
-              {item.items.map((product, index) => (
-                <View key={index} className="flex-row justify-between mb-1">
-                  <Text className="text-gray-600">
-                    {product.name} ({product.quantity} × ₹{product.unitPrice})
-                  </Text>
-                  <Text className="text-gray-600">
-                    ₹{(parseFloat(product.quantity) * parseFloat(product.unitPrice)).toLocaleString()}
-                  </Text>
-                </View>
-              ))}
-              
-              {/* Additional Charges */}
-              {item.transportCharge > 0 && (
-                <View className="flex-row justify-between mt-1">
-                  <Text className="text-gray-600">Transport Charge</Text>
-                  <Text className="text-gray-600">₹{item.transportCharge.toLocaleString()}</Text>
-                </View>
-              )}
-            </View>
-          )}
-        />
+            )}
+          />
+        ) : (
+          <View className="flex-1 justify-center items-center px-4">
+            <Text className="text-lg text-gray-600 text-center mb-6">No transactions found</Text>
+            <TouchableOpacity 
+              className="bg-blue-600 px-6 py-3 rounded-lg"
+              onPress={handleAddTransaction}
+            >
+              <Text className="text-white font-semibold">Add Transaction</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     );
   };
