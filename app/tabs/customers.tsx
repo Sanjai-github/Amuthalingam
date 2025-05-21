@@ -8,14 +8,24 @@ import {
   TextInput,
   ActivityIndicator,
   Alert,
-  RefreshControl
+  RefreshControl,
+  Modal,
+  KeyboardAvoidingView,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import LottieView from 'lottie-react-native';
 import CustomTabBar from '../../components/CustomTabBar';
-import { getCustomers, getCustomerTransactions, getSingleCustomerOutstandingBalance } from '../../Firebase/customerService';
+import { 
+  getCustomers, 
+  getCustomerTransactions, 
+  getSingleCustomerOutstandingBalance,
+  addPaymentToTransaction 
+} from '../../Firebase/customerService';
+import { doc, updateDoc } from 'firebase/firestore';
+import { db } from '../../Firebase/config';
 
 // Define interfaces for our data structures
 interface Payment {
@@ -48,6 +58,7 @@ interface Customer {
   address?: string;
   totalSales?: number;
   totalDue?: number;
+  lastTransactionDate?: string;
   transactions?: any[];
   createdAt?: any;
   updatedAt?: any;
@@ -155,9 +166,10 @@ export default function CustomersScreen() {
         const balanceResult = await getSingleCustomerOutstandingBalance(customer.id);
         const totalDue = balanceResult.error ? 0 : balanceResult.data;
         
-        // Get all transactions to calculate total sales
+        // Get all transactions to calculate total sales and get the latest transaction date
         const transactionsResult = await getCustomerTransactions(customer.id);
         let totalSales = 0;
+        let latestTransactionDate = '';
         
         if (!transactionsResult.error && transactionsResult.data.length > 0) {
           // Sum up all transaction total amounts
@@ -165,6 +177,15 @@ export default function CustomersScreen() {
             (sum, transaction) => sum + (transaction.total_amount || 0), 
             0
           );
+          
+          // Find the latest transaction date
+          const sortedTransactions = [...transactionsResult.data].sort((a, b) => {
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+          });
+          
+          if (sortedTransactions.length > 0) {
+            latestTransactionDate = sortedTransactions[0].date;
+          }
         }
         
         return {
@@ -174,6 +195,7 @@ export default function CustomersScreen() {
           address: customer.address || '',
           totalSales: totalSales,
           totalDue: totalDue,
+          lastTransactionDate: latestTransactionDate,
           transactions: [] // We'll load transactions only when a customer is selected
         };
       }));
@@ -258,6 +280,225 @@ export default function CustomersScreen() {
   const handleTransactionSelect = (transaction: CustomerTransaction) => {
     setSelectedTransaction(transaction);
   };
+  
+  // State for payment modal
+  const [paymentModalVisible, setPaymentModalVisible] = useState(false);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]); // Today's date
+  const [addingPayment, setAddingPayment] = useState(false);
+  const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<Customer | null>(null);
+  const [selectedTransactionForPayment, setSelectedTransactionForPayment] = useState<CustomerTransaction | null>(null);
+  
+  // Open payment modal directly from customer list
+  const openDirectPaymentModal = async (customer: Customer) => {
+    try {
+      setSelectedCustomerForPayment(customer);
+      setPaymentAmount('');
+      setPaymentDate(new Date().toISOString().split('T')[0]);
+      
+      // Fetch the latest transaction for this customer
+      const result = await getCustomerTransactions(customer.id);
+      
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      
+      if (result.data.length === 0) {
+        Alert.alert('No Transactions', 'This customer has no transactions to add payments to.');
+        return;
+      }
+      
+      // Sort transactions by date (newest first) and find one with outstanding balance
+      const sortedTransactions = [...result.data].sort((a, b) => {
+        return new Date(b.date).getTime() - new Date(a.date).getTime();
+      });
+      
+      // Find a transaction with outstanding balance
+      const transactionWithBalance = sortedTransactions.find(transaction => {
+        const totalPayments = transaction.payments ? 
+          transaction.payments.reduce((sum: number, payment: any) => sum + payment.amount, 0) : 0;
+        return transaction.total_amount - totalPayments > 0;
+      });
+      
+      if (!transactionWithBalance) {
+        Alert.alert('No Outstanding Balance', 'This customer has no transactions with outstanding balance.');
+        return;
+      }
+      
+      // Calculate total payments and outstanding amount
+      const totalPayments = transactionWithBalance.payments ? 
+        transactionWithBalance.payments.reduce((sum: number, payment: any) => sum + payment.amount, 0) : 0;
+      
+      const outstandingAmount = transactionWithBalance.total_amount - totalPayments;
+      
+      // Create a proper CustomerTransaction object
+      const selectedTransaction: CustomerTransaction = {
+        id: transactionWithBalance.id,
+        date: transactionWithBalance.date,
+        items: transactionWithBalance.items.map((item: any) => ({
+          name: item.name,
+          quantity: item.quantity,
+          unit_price: item.unit_price
+        })),
+        material_amount: transactionWithBalance.material_amount,
+        total_amount: transactionWithBalance.total_amount,
+        payments: transactionWithBalance.payments || [],
+        total_payments: totalPayments,
+        outstanding_amount: outstandingAmount,
+        balance: outstandingAmount
+      };
+      
+      setSelectedTransactionForPayment(selectedTransaction);
+      setPaymentModalVisible(true);
+      
+    } catch (error) {
+      console.error('Error preparing payment:', error);
+      Alert.alert('Error', 'Failed to prepare payment. Please try again.');
+    }
+  };
+  
+  // Handle adding a payment to a transaction
+  const handleAddPayment = async () => {
+    // Determine which customer and transaction to use
+    const customer = selectedCustomerForPayment || selectedCustomer;
+    const transaction = selectedTransactionForPayment || selectedTransaction;
+    
+    if (!transaction || !customer) {
+      Alert.alert('Error', 'Customer or transaction information is missing');
+      return;
+    }
+    
+    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+      Alert.alert('Error', 'Please enter a valid payment amount');
+      return;
+    }
+    
+    try {
+      setAddingPayment(true);
+      
+      // Create the new payment object
+      const newPayment: Payment = {
+        date: paymentDate,
+        amount: parseFloat(paymentAmount)
+      };
+      
+      // Use the addPaymentToTransaction service function
+      const result = await addPaymentToTransaction(
+        customer.id,
+        transaction.id,
+        newPayment
+      );
+      
+      if (!result.success) {
+        throw new Error(result.error);
+      }
+      
+      // After successful payment addition, fetch the updated transaction
+      const updatedTransactionResult = await getCustomerTransactions(customer.id);
+      if (updatedTransactionResult.error) {
+        throw new Error(updatedTransactionResult.error);
+      }
+      
+      // Find the updated transaction in the results
+      const updatedTransaction = updatedTransactionResult.data.find(
+        (t: any) => t.id === transaction.id
+      );
+      
+      if (!updatedTransaction) {
+        throw new Error('Updated transaction not found');
+      }
+      
+      // Calculate new total payments
+      const newTotalPayments = updatedTransaction.payments ? 
+        updatedTransaction.payments.reduce((sum: number, payment: any) => sum + payment.amount, 0) : 0;
+      
+      // Calculate new outstanding amount
+      const newOutstandingAmount = updatedTransaction.total_amount - newTotalPayments;
+      
+      // If we're in transaction detail view, update the selected transaction
+      if (selectedTransaction && selectedTransaction.id === transaction.id) {
+        setSelectedTransaction({
+          ...selectedTransaction,
+          payments: updatedTransaction.payments,
+          total_payments: newTotalPayments,
+          outstanding_amount: newOutstandingAmount,
+          balance: newOutstandingAmount
+        });
+        
+        // Update the customer transactions list
+        const updatedTransactions = customerTransactions.map(t => 
+          t.id === transaction.id ? {
+            ...t,
+            payments: updatedTransaction.payments,
+            total_payments: newTotalPayments,
+            outstanding_amount: newOutstandingAmount,
+            balance: newOutstandingAmount
+          } : t
+        );
+        setCustomerTransactions(updatedTransactions);
+      }
+      
+      // Fetch all customers to update the list with new balances
+      const customersResult = await getCustomers();
+      if (!customersResult.error) {
+        // Transform the data to match our Customer interface
+        const customersList: Customer[] = await Promise.all(customersResult.data.map(async (c) => {
+          // Get outstanding balance for each customer
+          const balanceResult = await getSingleCustomerOutstandingBalance(c.id);
+          const totalDue = balanceResult.error ? 0 : balanceResult.data;
+          
+          // Get all transactions to calculate total sales
+          const transactionsResult = await getCustomerTransactions(c.id);
+          let totalSales = 0;
+          
+          if (!transactionsResult.error && transactionsResult.data.length > 0) {
+            // Sum up all transaction total amounts
+            totalSales = transactionsResult.data.reduce(
+              (sum, t) => sum + (t.total_amount || 0), 
+              0
+            );
+          }
+          
+          return {
+            id: c.id,
+            name: c.name,
+            phone: c.phone || '',
+            address: c.address || '',
+            totalSales: totalSales,
+            totalDue: totalDue,
+            transactions: [] // We'll load transactions only when a customer is selected
+          };
+        }));
+        
+        setCustomers(customersList);
+      }
+      
+      // Reset the form and states
+      setPaymentAmount('');
+      setPaymentDate(new Date().toISOString().split('T')[0]);
+      setPaymentModalVisible(false);
+      setSelectedCustomerForPayment(null);
+      setSelectedTransactionForPayment(null);
+      
+      // Show success message
+      Alert.alert('Success', 'Payment added successfully');
+      
+    } catch (error) {
+      console.error('Error adding payment:', error);
+      Alert.alert('Error', 'Failed to add payment. Please try again.');
+    } finally {
+      setAddingPayment(false);
+    }
+  };
+  
+  // Open payment modal for transaction detail view
+  const openPaymentModal = () => {
+    setPaymentAmount('');
+    setPaymentDate(new Date().toISOString().split('T')[0]);
+    setSelectedCustomerForPayment(null);
+    setSelectedTransactionForPayment(null);
+    setPaymentModalVisible(true);
+  };
 
   const handleBackToList = () => {
     setSelectedCustomer(null);
@@ -315,12 +556,11 @@ export default function CustomersScreen() {
             >
               <View className="flex-row justify-between items-center mb-2">
                 <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
-                {/* We don't know transaction count until we select a customer */}
-                {item.phone && (
+                {item.lastTransactionDate ? (
                   <View className="bg-blue-100 px-2 py-1 rounded-full">
-                    <Text className="text-blue-800 font-medium">{item.phone}</Text>
+                    <Text className="text-blue-800 font-medium">{item.lastTransactionDate}</Text>
                   </View>
-                )}
+                ) : null}
               </View>
               
               <View className="flex-row justify-between">
@@ -338,6 +578,18 @@ export default function CustomersScreen() {
                   )}
                 </View>
               </View>
+              
+              {/* Add Payment Button for customers with outstanding balance */}
+              {(item.totalDue || 0) > 10 && (
+                <View className="mt-3 flex-row justify-end">
+                  <TouchableOpacity 
+                    className="bg-blue-600 rounded-lg py-1 px-3"
+                    onPress={() => openDirectPaymentModal(item)}
+                  >
+                    <Text className="text-white font-medium text-sm">Add Payment</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
             </TouchableOpacity>
           )}
         />
@@ -565,6 +817,71 @@ export default function CustomersScreen() {
       
       {/* Custom Tab Bar with Animations */}
       <CustomTabBar />
+      
+      {/* Payment Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={paymentModalVisible}
+        onRequestClose={() => setPaymentModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          className="flex-1 justify-center items-center bg-black bg-opacity-50"
+          style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}
+        >
+          <View className="bg-white rounded-xl p-5 w-11/12 max-w-md">
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-xl font-bold text-gray-800">Add Payment</Text>
+              <TouchableOpacity onPress={() => setPaymentModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#374151" />
+              </TouchableOpacity>
+            </View>
+            
+            <View className="mb-4">
+              <Text className="text-gray-700 mb-1">Payment Date</Text>
+              <TextInput
+                className="border border-gray-300 rounded-lg px-3 py-2 text-gray-800"
+                value={paymentDate}
+                onChangeText={setPaymentDate}
+                placeholder="YYYY-MM-DD"
+              />
+            </View>
+            
+            <View className="mb-6">
+              <Text className="text-gray-700 mb-1">Payment Amount (₹)</Text>
+              <TextInput
+                className="border border-gray-300 rounded-lg px-3 py-2 text-gray-800"
+                value={paymentAmount}
+                onChangeText={setPaymentAmount}
+                keyboardType="numeric"
+                placeholder="Enter amount"
+              />
+            </View>
+            
+            <View className="flex-row justify-end">
+              <TouchableOpacity 
+                className="bg-gray-300 rounded-lg py-2 px-4 mr-2"
+                onPress={() => setPaymentModalVisible(false)}
+              >
+                <Text className="text-gray-800 font-medium">Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                className="bg-blue-600 rounded-lg py-2 px-4"
+                onPress={handleAddPayment}
+                disabled={addingPayment}
+              >
+                {addingPayment ? (
+                  <ActivityIndicator size="small" color="white" />
+                ) : (
+                  <Text className="text-white font-semibold">Save Payment</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }

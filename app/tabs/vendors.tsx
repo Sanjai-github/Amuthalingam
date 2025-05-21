@@ -44,6 +44,7 @@ interface Vendor {
   name: string;
   totalSpent: number;
   totalOwed: number;
+  lastTransactionDate?: string;
   transactions: VendorTransaction[];
 }
 
@@ -81,9 +82,10 @@ export default function VendorsScreen() {
         const balanceResult = await getSingleVendorOutstandingBalance(vendor.id);
         const totalOwed = balanceResult.error ? 0 : balanceResult.data;
         
-        // Get all transactions to calculate total spent
+        // Get all transactions to calculate total spent and get the latest transaction date
         const transactionsResult = await getVendorTransactions(vendor.id);
         let totalSpent = 0;
+        let latestTransactionDate = '';
         
         if (!transactionsResult.error && transactionsResult.data.length > 0) {
           // Sum up all transaction total amounts
@@ -91,6 +93,15 @@ export default function VendorsScreen() {
             (sum, transaction) => sum + (transaction.total_amount || 0), 
             0
           );
+          
+          // Find the latest transaction date
+          const sortedTransactions = [...transactionsResult.data].sort((a, b) => {
+            return new Date(b.date).getTime() - new Date(a.date).getTime();
+          });
+          
+          if (sortedTransactions.length > 0) {
+            latestTransactionDate = sortedTransactions[0].date;
+          }
         }
         
         return {
@@ -98,6 +109,7 @@ export default function VendorsScreen() {
           name: vendor.name,
           totalSpent: totalSpent,
           totalOwed: totalOwed,
+          lastTransactionDate: latestTransactionDate,
           transactions: [] // We'll load transactions only when a vendor is selected
         };
       }));
@@ -211,11 +223,18 @@ export default function VendorsScreen() {
               className="bg-white p-4 rounded-xl mb-3 shadow-sm border border-gray-100"
               onPress={() => handleVendorSelect(item)}
             >
+              <View className="flex-row justify-between items-center mb-1">
+                <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
+                
+                {item.lastTransactionDate ? (
+                  <View className="bg-blue-100 px-2 py-1 rounded-full">
+                    <Text className="text-blue-800 font-medium">{item.lastTransactionDate}</Text>
+                  </View>
+                ) : null}
+              </View>
+              
               <View className="flex-row justify-between items-center">
-                <View>
-                  <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
-                  <Text className="text-gray-500">Total Spent: ₹{item.totalSpent.toLocaleString()}</Text>
-                </View>
+                <Text className="text-gray-500">Total Spent: ₹{item.totalSpent.toLocaleString()}</Text>
                 
                 {item.totalOwed > 0 ? (
                   <View className="bg-red-100 px-3 py-1 rounded-full">

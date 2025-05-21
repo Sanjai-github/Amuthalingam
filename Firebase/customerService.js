@@ -203,8 +203,8 @@ export const addPaymentToTransaction = async (customerId, transactionId, payment
     const currentPayments = transaction.payments || [];
     const updatedPayments = [...currentPayments, {
       ...paymentData,
-      date: paymentData.date || new Date().toISOString().split('T')[0],
-      createdAt: serverTimestamp()
+      date: paymentData.date || new Date().toISOString().split('T')[0]
+      // Removed serverTimestamp as it's not supported in arrays
     }];
     
     // Calculate new total payments
