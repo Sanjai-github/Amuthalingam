@@ -19,8 +19,25 @@ const VENDORS_COLLECTION = 'vendors';
 const CUSTOMERS_COLLECTION = 'customers';
 const TRANSACTIONS_SUBCOLLECTION = 'transactions';
 const SUMMARIES_COLLECTION = 'summaries';
+const VENDOR_PAYMENTS_COLLECTION = 'vendor_payments';
 
-// Get current user ID
+// Default empty summary structure
+const DEFAULT_MONTHLY_SUMMARY = {
+  monthly_income: 0,
+  monthly_expenses: 0,
+  monthly_net_balance: 0,
+  vendor_transaction_count: 0,
+  customer_transaction_count: 0,
+  vendor_payment_count: 0,
+  customer_payment_count: 0,
+  top_vendors: [],
+  top_customers: []
+};
+
+/**
+ * Get current user ID
+ * @returns {string} User ID or 'default' if no user is authenticated
+ */
 const getCurrentUserId = () => {
   const user = auth.currentUser;
   if (!user) {
@@ -30,7 +47,12 @@ const getCurrentUserId = () => {
   return user.uid;
 };
 
-// Calculate monthly summary (income, expenses, net balance)
+/**
+ * Calculate monthly summary (income, expenses, net balance)
+ * @param {number} year - Year to calculate summary for
+ * @param {number} month - Month to calculate summary for (1-12)
+ * @returns {Promise<Object>} Monthly summary data or error
+ */
 export const calculateMonthlySummary = async (year, month) => {
   try {
     const userId = getCurrentUserId();
@@ -104,8 +126,8 @@ export const calculateMonthlySummary = async (year, month) => {
       
       // Check for vendor payments in this month
       const vendorPaymentsPath = userId === 'default' 
-        ? 'vendor_payments' 
-        : `users/${userId}/vendor_payments`;
+        ? VENDOR_PAYMENTS_COLLECTION 
+        : `users/${userId}/${VENDOR_PAYMENTS_COLLECTION}`;
       
       try {
         // First query with just the vendor_id filter
@@ -247,110 +269,180 @@ export const calculateMonthlySummary = async (year, month) => {
 // Get monthly summary for a specific month
 export const getMonthlySummary = async (year, month) => {
   try {
+    // First check if we have a cached summary
     const userId = getCurrentUserId();
-    
-    // Format month to ensure it's two digits
-    const formattedMonth = month.toString().padStart(2, '0');
-    
-    // Get the summary document
-    const summaryId = `${year}-${formattedMonth}`;
-    const summariesPath = userId === 'default' ? SUMMARIES_COLLECTION : `users/${userId}/${SUMMARIES_COLLECTION}`;
-    const summaryRef = doc(db, summariesPath, summaryId);
-    const summarySnap = await getDoc(summaryRef);
-    
-    if (summarySnap.exists()) {
-      return { data: summarySnap.data(), error: null };
-    } else {
-      // If summary doesn't exist, calculate it
-      return await calculateMonthlySummary(year, month);
+    const summaryId = `${year}_${month.toString().padStart(2, '0')}`;
+    const summaryRef = doc(db, `users/${userId}/${SUMMARIES_COLLECTION}`, summaryId);
+
+    try {
+      const summaryDoc = await getDoc(summaryRef);
+
+      if (summaryDoc.exists()) {
+        return { data: summaryDoc.data(), error: null };
+      }
+    } catch (docError) {
+      console.warn('Error fetching cached summary, will calculate fresh:', docError);
+      // Continue to calculate a fresh summary
     }
+
+    // If no cached summary or error fetching it, calculate it
+    const result = await calculateMonthlySummary(year, month);
+
+    // If calculation failed, return a default structure to avoid UI errors
+    if (result.error || !result.data) {
+      console.error('Error calculating monthly summary:', result.error);
+      return { 
+        data: { 
+          ...DEFAULT_MONTHLY_SUMMARY,
+          year,
+          month
+        }, 
+        error: result.error 
+      };
+    }
+
+    return result;
   } catch (error) {
-    console.error('Error getting monthly summary:', error);
-    return { data: null, error: error.message };
+    console.error('Error in getMonthlySummary:', error);
+    // Return default structure to avoid UI errors
+    return { 
+      data: { 
+        ...DEFAULT_MONTHLY_SUMMARY,
+        year,
+        month
+      }, 
+      error: error.message 
+    };
   }
 };
 
-// Get current month summary
+/**
+ * Get current month summary
+ * @returns {Promise<Object>} Current month's summary data or error
+ */
 export const getCurrentMonthlySummary = async () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth() + 1; // JavaScript months are 0-indexed
-  
-  return await getMonthlySummary(year, month);
+  try {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = today.getMonth() + 1; // JavaScript months are 0-indexed
+
+    return await getMonthlySummary(year, month);
+  } catch (error) {
+    console.error('Error getting current monthly summary:', error);
+    // Return default structure to avoid UI errors
+    const today = new Date();
+    return { 
+      data: { 
+        ...DEFAULT_MONTHLY_SUMMARY,
+        year: today.getFullYear(),
+        month: today.getMonth() + 1
+      }, 
+      error: error.message 
+    };
+  }
 };
 
-// Get home screen summary data (vendor balance, customer balance, monthly summary)
+/**
+ * Get home screen summary data (vendor balance, customer balance, monthly summary)
+ * @returns {Promise<Object>} Combined summary data for home screen or error
+ */
 export const getHomeSummary = async () => {
   try {
     // Get vendor outstanding balance
-    const vendorBalanceResult = await getVendorOutstandingBalance();
-    if (vendorBalanceResult.error) {
-      throw new Error(vendorBalanceResult.error);
-    }
-    
+    const vendorResult = await getVendorOutstandingBalance();
+    const vendorBalance = vendorResult.error ? 0 : vendorResult.data;
+
     // Get customer outstanding balance
-    const customerBalanceResult = await getCustomerOutstandingBalance();
-    if (customerBalanceResult.error) {
-      throw new Error(customerBalanceResult.error);
-    }
-    
+    const customerResult = await getCustomerOutstandingBalance();
+    const customerBalance = customerResult.error ? 0 : customerResult.data;
+
     // Get current month summary
-    const monthlySummaryResult = await getCurrentMonthlySummary();
-    if (monthlySummaryResult.error) {
-      throw new Error(monthlySummaryResult.error);
-    }
-    
+    const summaryResult = await getCurrentMonthlySummary();
+    const monthlySummary = summaryResult.error ? DEFAULT_MONTHLY_SUMMARY : summaryResult.data;
+
     return {
       data: {
-        vendor_outstanding: vendorBalanceResult.data,
-        customer_outstanding: customerBalanceResult.data,
-        monthly_summary: monthlySummaryResult.data
+        vendor_balance: vendorBalance,
+        customer_balance: customerBalance,
+        monthly_summary: monthlySummary
       },
       error: null
     };
   } catch (error) {
     console.error('Error getting home summary:', error);
-    return { data: null, error: error.message };
+    // Return default structure to avoid UI errors
+    const today = new Date();
+    return { 
+      data: {
+        vendor_balance: 0,
+        customer_balance: 0,
+        monthly_summary: {
+          ...DEFAULT_MONTHLY_SUMMARY,
+          year: today.getFullYear(),
+          month: today.getMonth() + 1
+        }
+      }, 
+      error: error.message 
+    };
   }
 };
 
-// Get yearly summary
+/**
+ * Get yearly summary
+ * @param {number} year - Year to get summary for
+ * @returns {Promise<Object>} Yearly summary with monthly breakdown or error
+ */
 export const getYearlySummary = async (year) => {
   try {
-    const userId = getCurrentUserId();
-    const summariesRef = collection(db, `users/${userId}/${SUMMARIES_COLLECTION}`);
-    
-    // Query all summaries for the specified year
-    const q = query(
-      summariesRef,
-      where('year', '==', year),
-      orderBy('month', 'asc')
-    );
-    
-    const querySnapshot = await getDocs(q);
-    
-    // Initialize yearly totals
+    const monthlyData = [];
     let yearlyIncome = 0;
     let yearlyExpenses = 0;
-    const monthlyData = [];
-    
-    // Process each month's data
-    querySnapshot.forEach((doc) => {
-      const monthData = doc.data();
-      yearlyIncome += monthData.monthly_income || 0;
-      yearlyExpenses += monthData.monthly_expenses || 0;
-      
-      monthlyData.push({
-        month: monthData.month,
-        income: monthData.monthly_income || 0,
-        expenses: monthData.monthly_expenses || 0,
-        net_balance: monthData.net_balance || 0
-      });
-    });
-    
-    // Calculate net balance for the year
+
+    // Calculate summary for each month
+    for (let month = 1; month <= 12; month++) {
+      try {
+        const result = await getMonthlySummary(year, month);
+
+        if (result.error) {
+          console.warn(`Error getting summary for ${year}-${month}:`, result.error);
+          // Use zeros for months with errors
+          monthlyData.push({
+            month,
+            income: 0,
+            expenses: 0,
+            net_balance: 0
+          });
+          continue;
+        }
+
+        const monthSummary = result.data;
+        const monthIncome = monthSummary.monthly_income || 0;
+        const monthExpenses = monthSummary.monthly_expenses || 0;
+        const monthNetBalance = monthIncome - monthExpenses;
+
+        yearlyIncome += monthIncome;
+        yearlyExpenses += monthExpenses;
+
+        monthlyData.push({
+          month,
+          income: monthIncome,
+          expenses: monthExpenses,
+          net_balance: monthNetBalance
+        });
+      } catch (monthError) {
+        console.error(`Error processing month ${year}-${month}:`, monthError);
+        // Add zeros for this month and continue with the next
+        monthlyData.push({
+          month,
+          income: 0,
+          expenses: 0,
+          net_balance: 0
+        });
+      }
+    }
+
     const yearlyNetBalance = yearlyIncome - yearlyExpenses;
-    
+
     return {
       data: {
         year,
@@ -363,100 +455,140 @@ export const getYearlySummary = async (year) => {
     };
   } catch (error) {
     console.error('Error getting yearly summary:', error);
-    return { data: null, error: error.message };
+    // Return default structure to avoid UI errors
+    return { 
+      data: {
+        year,
+        yearly_income: 0,
+        yearly_expenses: 0,
+        yearly_net_balance: 0,
+        monthly_breakdown: Array(12).fill(0).map((_, index) => ({
+          month: index + 1,
+          income: 0,
+          expenses: 0,
+          net_balance: 0
+        }))
+      }, 
+      error: error.message 
+    };
   }
 };
 
-// Get transaction history for a date range
+/**
+ * Get transaction history for a date range
+ * @param {string} startDate - Start date in YYYY-MM-DD format
+ * @param {string} endDate - End date in YYYY-MM-DD format
+ * @returns {Promise<Object>} Transaction history or error
+ */
 export const getTransactionHistory = async (startDate, endDate) => {
   try {
     const userId = getCurrentUserId();
+    const vendorTransactions = [];
+    const customerTransactions = [];
     
     // Get vendor transactions
-    const vendorTransactions = [];
-    const vendorsRef = collection(db, `users/${userId}/${VENDORS_COLLECTION}`);
-    const vendorsSnapshot = await getDocs(vendorsRef);
-    
-    for (const vendorDoc of vendorsSnapshot.docs) {
-      const vendorId = vendorDoc.id;
-      const vendorName = vendorDoc.data().name;
-      const transactionsRef = collection(
-        db, 
-        `users/${userId}/${VENDORS_COLLECTION}/${vendorId}/${TRANSACTIONS_SUBCOLLECTION}`
-      );
+    try {
+      const vendorsRef = collection(db, `users/${userId}/${VENDORS_COLLECTION}`);
+      const vendorsSnapshot = await getDocs(vendorsRef);
       
-      // Query transactions for the date range
-      const q = query(
-        transactionsRef,
-        where('date', '>=', startDate),
-        where('date', '<=', endDate),
-        orderBy('date', 'desc')
-      );
-      
-      const transactionsSnapshot = await getDocs(q);
-      
-      transactionsSnapshot.forEach((transactionDoc) => {
-        const transaction = transactionDoc.data();
-        vendorTransactions.push({
-          id: transactionDoc.id,
-          vendor_id: vendorId,
-          vendor_name: vendorName,
-          type: 'expense',
-          date: transaction.date,
-          amount: transaction.total_amount || 0,
-          ...transaction
-        });
-      });
+      for (const vendorDoc of vendorsSnapshot.docs) {
+        try {
+          const vendorId = vendorDoc.id;
+          const vendorName = vendorDoc.data().name || 'Unknown Vendor';
+          const transactionsRef = collection(
+            db, 
+            `users/${userId}/${VENDORS_COLLECTION}/${vendorId}/${TRANSACTIONS_SUBCOLLECTION}`
+          );
+          
+          // Query transactions for the date range
+          const q = query(
+            transactionsRef,
+            where('date', '>=', startDate),
+            where('date', '<=', endDate),
+            orderBy('date', 'desc')
+          );
+          
+          const transactionsSnapshot = await getDocs(q);
+          
+          transactionsSnapshot.forEach((transactionDoc) => {
+            const transaction = transactionDoc.data();
+            vendorTransactions.push({
+              id: transactionDoc.id,
+              vendor_id: vendorId,
+              vendor_name: vendorName,
+              type: 'expense',
+              date: transaction.date,
+              amount: transaction.total_amount || 0,
+              ...transaction
+            });
+          });
+        } catch (vendorError) {
+          console.error(`Error processing vendor ${vendorDoc.id}:`, vendorError);
+          // Continue with next vendor
+        }
+      }
+    } catch (vendorsError) {
+      console.error('Error fetching vendors:', vendorsError);
+      // Continue with customer transactions
     }
     
     // Get customer transactions
-    const customerTransactions = [];
-    const customersRef = collection(db, `users/${userId}/${CUSTOMERS_COLLECTION}`);
-    const customersSnapshot = await getDocs(customersRef);
-    
-    for (const customerDoc of customersSnapshot.docs) {
-      const customerId = customerDoc.id;
-      const customerName = customerDoc.data().name;
-      const transactionsRef = collection(
-        db, 
-        `users/${userId}/${CUSTOMERS_COLLECTION}/${customerId}/${TRANSACTIONS_SUBCOLLECTION}`
-      );
+    try {
+      const customersRef = collection(db, `users/${userId}/${CUSTOMERS_COLLECTION}`);
+      const customersSnapshot = await getDocs(customersRef);
       
-      // Query transactions for the date range
-      const q = query(
-        transactionsRef,
-        where('date', '>=', startDate),
-        where('date', '<=', endDate),
-        orderBy('date', 'desc')
-      );
-      
-      const transactionsSnapshot = await getDocs(q);
-      
-      transactionsSnapshot.forEach((transactionDoc) => {
-        const transaction = transactionDoc.data();
-        
-        // For customer transactions, we need to handle payments separately
-        if (transaction.payments && Array.isArray(transaction.payments)) {
-          // Filter payments within the date range
-          const paymentsInRange = transaction.payments.filter(
-            payment => payment.date >= startDate && payment.date <= endDate
+      for (const customerDoc of customersSnapshot.docs) {
+        try {
+          const customerId = customerDoc.id;
+          const customerName = customerDoc.data().name || 'Unknown Customer';
+          const transactionsRef = collection(
+            db, 
+            `users/${userId}/${CUSTOMERS_COLLECTION}/${customerId}/${TRANSACTIONS_SUBCOLLECTION}`
           );
           
-          // Add each payment as a separate transaction entry
-          paymentsInRange.forEach(payment => {
-            customerTransactions.push({
-              id: `${transactionDoc.id}_payment_${payment.date}`,
-              customer_id: customerId,
-              customer_name: customerName,
-              type: 'income',
-              date: payment.date,
-              amount: payment.amount || 0,
-              payment_for: transaction.date, // Reference to original transaction date
-              transaction_id: transactionDoc.id
-            });
+          // Query transactions for the date range
+          const q = query(
+            transactionsRef,
+            where('date', '>=', startDate),
+            where('date', '<=', endDate),
+            orderBy('date', 'desc')
+          );
+          
+          const transactionsSnapshot = await getDocs(q);
+          
+          transactionsSnapshot.forEach((transactionDoc) => {
+            const transaction = transactionDoc.data();
+            
+            // For customer transactions, we need to handle payments separately
+            if (transaction.payments && Array.isArray(transaction.payments)) {
+              // Filter payments within the date range
+              const paymentsInRange = transaction.payments.filter(
+                payment => payment.date >= startDate && payment.date <= endDate
+              );
+              
+              // Add each payment as a separate transaction entry
+              paymentsInRange.forEach(payment => {
+                customerTransactions.push({
+                  id: `${transactionDoc.id}_payment_${payment.date}`,
+                  customer_id: customerId,
+                  customer_name: customerName,
+                  type: 'income',
+                  date: payment.date,
+                  amount: payment.amount || 0,
+                  payment_for: transaction.date, // Reference to original transaction date
+                  transaction_id: transactionDoc.id
+                });
+              });
+            }
           });
+        } catch (customerError) {
+          console.error(`Error processing customer ${customerDoc.id}:`, customerError);
+          // Continue with next customer
         }
-      });
+      }
+    } catch (customersError) {
+      console.error('Error fetching customers:', customersError);
+      // Continue with combining results
     }
     
     // Combine and sort all transactions by date

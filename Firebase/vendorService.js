@@ -192,11 +192,30 @@ export const getVendorOutstandingBalance = async () => {
       
       const transactionsSnapshot = await getDocs(transactionsRef);
       
+      let vendorTotal = 0;
+      
       // Sum up all transaction amounts
       transactionsSnapshot.forEach((transactionDoc) => {
         const transaction = transactionDoc.data();
-        totalOutstanding += transaction.total_amount || 0;
+        vendorTotal += transaction.total_amount || 0;
       });
+      
+      // Get vendor payments
+      const paymentsRef = query(
+        collection(db, `users/${userId}/vendor_payments`),
+        where('vendor_id', '==', vendorId)
+      );
+      
+      const paymentsSnapshot = await getDocs(paymentsRef);
+      
+      // Subtract payments from the total
+      paymentsSnapshot.forEach((paymentDoc) => {
+        const payment = paymentDoc.data();
+        vendorTotal -= payment.amount || 0;
+      });
+      
+      // Add this vendor's outstanding balance to the total
+      totalOutstanding += vendorTotal > 0 ? vendorTotal : 0;
     }
     
     return { data: totalOutstanding, error: null };

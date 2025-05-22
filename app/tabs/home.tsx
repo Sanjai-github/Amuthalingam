@@ -23,7 +23,8 @@ import { getCustomerOutstandingBalance } from '../../Firebase/customerService';
 interface MonthlySummary {
   monthly_income: number;
   monthly_expenses: number;
-  net_balance: number;
+  net_balance: number; // This maps to monthly_net_balance in Firebase
+  monthly_net_balance?: number; // Adding this for compatibility with Firebase data
   year?: number;
   month?: number;
   vendor_transaction_count?: number;
@@ -67,6 +68,41 @@ export default function HomeScreen() {
     top_customers: []
   });
   
+  // State for horizontal scrolling
+  const [currentPage, setCurrentPage] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
+  
+  // Handle horizontal scroll with improved page detection
+  const handleScroll = (event: { nativeEvent: { contentOffset: { x: number } } }) => {
+    const contentOffsetX = event.nativeEvent.contentOffset.x;
+    const pageWidth = Dimensions.get('window').width;
+    // Calculate current page with better precision
+    const currentPage = Math.round(contentOffsetX / pageWidth);
+    setCurrentPage(currentPage);
+    
+    // Auto-snap to the nearest page when scrolling stops
+    const isCloseToPage = Math.abs(contentOffsetX - (currentPage * pageWidth)) < 20;
+    if (isCloseToPage && scrollViewRef.current) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({
+          x: currentPage * pageWidth,
+          animated: true
+        });
+      }, 100);
+    }
+  };
+
+  // Function to scroll to a specific page with improved animation
+  const scrollToPage = (pageIndex: number) => {
+    if (scrollViewRef.current) {
+      scrollViewRef.current.scrollTo({
+        x: pageIndex * Dimensions.get('window').width,
+        animated: true
+      });
+      setCurrentPage(pageIndex); // Update page immediately for better UX
+    }
+  };
+  
   // Fetch data from Firebase
   const fetchData = async (isRefreshing = false) => {
     try {
@@ -76,27 +112,28 @@ export default function HomeScreen() {
       
       // Fetch vendor outstanding balance
       const vendorResult = await getVendorOutstandingBalance();
-      if (!vendorResult.error) {
+      if ('error' in vendorResult && !vendorResult.error) {
         setVendorOutstanding(vendorResult.data);
       }
       
       // Fetch customer outstanding balance
       const customerResult = await getCustomerOutstandingBalance();
-      if (!customerResult.error) {
+      if ('error' in customerResult && !customerResult.error) {
         setCustomerOutstanding(customerResult.data);
       }
       
       // First calculate the monthly summary to ensure it's up-to-date
-      console.log(`Calculating summary for ${selectedYear}-${selectedMonth}`);
+      //console.log(`Calculating summary for ${selectedYear}-${selectedMonth}`);
       await calculateMonthlySummary(selectedYear, selectedMonth);
       
       // Then fetch the updated monthly summary
       const summaryResult = await getMonthlySummary(selectedYear, selectedMonth);
-      if (!summaryResult.error && summaryResult.data) {
+      // Check if summaryResult is an object with data property
+      if (summaryResult && typeof summaryResult === 'object' && 'data' in summaryResult && summaryResult.data) {
         setMonthlySummary({
           monthly_income: summaryResult.data.monthly_income || 0,
           monthly_expenses: summaryResult.data.monthly_expenses || 0,
-          net_balance: summaryResult.data.net_balance || 0,
+          net_balance: summaryResult.data.monthly_net_balance || (summaryResult.data.monthly_income - summaryResult.data.monthly_expenses) || 0,
           year: selectedYear,
           month: selectedMonth,
           vendor_transaction_count: summaryResult.data.vendor_transaction_count || 0,
@@ -166,18 +203,24 @@ export default function HomeScreen() {
     
     try {
       // First calculate the summary to ensure it's up-to-date
-      console.log(`Calculating summary for ${newYear}-${newMonth}`);
+      //console.log(`Calculating summary for ${newYear}-${newMonth}`);
       await calculateMonthlySummary(newYear, newMonth);
       
       // Then fetch the updated summary
       const result = await getMonthlySummary(newYear, newMonth);
-      if (!result.error && result.data) {
+      if ('error' in result && !result.error && 'data' in result && result.data) {
         setMonthlySummary({
           monthly_income: result.data.monthly_income || 0,
           monthly_expenses: result.data.monthly_expenses || 0,
-          net_balance: result.data.net_balance || 0,
+          net_balance: result.data.monthly_net_balance || (result.data.monthly_income - result.data.monthly_expenses) || 0, // Maps to monthly_net_balance in Firebase
           year: newYear,
-          month: newMonth
+          month: newMonth,
+          vendor_transaction_count: result.data.vendor_transaction_count || 0,
+          customer_transaction_count: result.data.customer_transaction_count || 0,
+          vendor_payment_count: result.data.vendor_payment_count || 0,
+          customer_payment_count: result.data.customer_payment_count || 0,
+          top_vendors: result.data.top_vendors || [],
+          top_customers: result.data.top_customers || []
         });
       } else {
         // Reset summary if no data found
@@ -187,7 +230,13 @@ export default function HomeScreen() {
           monthly_expenses: 0,
           net_balance: 0,
           year: newYear,
-          month: newMonth
+          month: newMonth,
+          vendor_transaction_count: 0,
+          customer_transaction_count: 0,
+          vendor_payment_count: 0,
+          customer_payment_count: 0,
+          top_vendors: [],
+          top_customers: []
         });
       }
     } catch (error) {
@@ -198,7 +247,13 @@ export default function HomeScreen() {
         monthly_expenses: 0,
         net_balance: 0,
         year: newYear,
-        month: newMonth
+        month: newMonth,
+        vendor_transaction_count: 0,
+        customer_transaction_count: 0,
+        vendor_payment_count: 0,
+        customer_payment_count: 0,
+        top_vendors: [],
+        top_customers: []
       });
     } finally {
       setIsLoading(false);
@@ -279,183 +334,218 @@ export default function HomeScreen() {
           />
         }
       >
-        {/* Outstanding Balances Section */}
-        <View className="flex-row items-center mb-3">
-          <Text className="text-xl font-bold text-gray-800">Outstanding Balances</Text>
-          <View className="h-1 w-16 bg-pink-200 rounded-full ml-3 mt-1" />
+        {/* Page Indicator - Now Touchable */}
+        <View className="flex-row justify-center mt-2 mb-1">
+          <TouchableOpacity onPress={() => scrollToPage(0)}>
+            <View className={`h-2 w-2 rounded-full mx-1 ${currentPage === 0 ? 'bg-amber-800' : 'bg-gray-300'}`} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={() => scrollToPage(1)}>
+            <View className={`h-2 w-2 rounded-full mx-1 ${currentPage === 1 ? 'bg-amber-800' : 'bg-gray-300'}`} />
+          </TouchableOpacity>
         </View>
         
-        {isLoading ? (
-          <View className="flex-row justify-between mb-6 items-center">
-            <ActivityIndicator size="large" color="#ca7353" />
-            <Text className="ml-2 text-gray-600">Loading balances...</Text>
-          </View>
-        ) : (
-          <View className="flex-row justify-between mb-6">
-            {/* Vendor Card */}
-            <View className="bg-white rounded-xl p-4 shadow-md w-[48%]">
-              <View className="flex-row items-center mb-2">
-                <View className="bg-orange-100 p-2 rounded-full mr-2">
-                  <Ionicons name="cube-outline" size={24} color="#f97316" />
-                </View>
-                <Text className="font-semibold text-gray-700">Vendors</Text>
+        {/* Horizontal ScrollView for Monthly and Activity Summary */}
+        <ScrollView
+          ref={scrollViewRef}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          onScroll={handleScroll}
+          scrollEventThrottle={16}
+          decelerationRate="fast"
+          snapToInterval={Dimensions.get('window').width}
+          snapToAlignment="center"
+          disableIntervalMomentum={true}
+          contentOffset={{ x: 0, y: 0 }}
+          contentContainerStyle={{ width: Dimensions.get('window').width * 2 }}
+          style={{ width: Dimensions.get('window').width }}
+        >
+          {/* Page 1: Monthly Summary */}
+          <View style={{ width: Dimensions.get('window').width, paddingHorizontal: 16, paddingRight: 36 }} className="bg-[#FCEFE9] items-center">
+            {/* Outstanding Balances */}
+            <View className="flex-row justify-center w-full mt-4 max-w-md">
+              <View className="bg-white rounded-xl p-4 shadow-sm flex-1 mr-2">
+                <Text className="text-amber-800 font-bold text-lg">Vendor Balance</Text>
+                <Text className="text-2xl font-bold mt-1">₹{vendorOutstanding.toLocaleString()}</Text>
+                <Text className="text-xs text-gray-500 mt-1">Outstanding Amount</Text>
               </View>
-              <Text className="text-2xl font-bold text-gray-800">₹{vendorOutstanding.toLocaleString()}</Text>
-              <Text className="text-sm text-gray-500">Total Owed</Text>
+              
+              <View className="bg-white rounded-xl p-4 shadow-sm flex-1 ml-2">
+                <Text className="text-amber-800 font-bold text-lg">Customer Balance</Text>
+                <Text className="text-2xl font-bold mt-1">₹{customerOutstanding.toLocaleString()}</Text>
+                <Text className="text-xs text-gray-500 mt-1">Outstanding Amount</Text>
+              </View>
             </View>
             
-            {/* Customer Card */}
-            <View className="bg-white rounded-xl p-4 shadow-md w-[48%]">
-              <View className="flex-row items-center mb-2">
-                <View className="bg-blue-100 p-2 rounded-full mr-2">
-                  <Ionicons name="person-outline" size={24} color="#3b82f6" />
-                </View>
-                <Text className="font-semibold text-gray-700">Customers</Text>
-              </View>
-              <Text className="text-2xl font-bold text-gray-800">₹{customerOutstanding.toLocaleString()}</Text>
-              <Text className="text-sm text-gray-500">Total Due</Text>
-            </View>
-          </View>
-        )}
-
-        {/* Monthly Summary Section */}
-        <View className="flex-row justify-between items-center mb-3">
-          <Text className="text-xl font-bold text-gray-800">Monthly Summary</Text>
-          
-          {/* Month Selector */}
-          <View className="flex-row items-center bg-white rounded-lg px-2 py-1 shadow-sm">
-            <TouchableOpacity onPress={() => changeMonth('prev')} className="p-1">
-              <Ionicons name="chevron-back" size={20} color="#666" />
-            </TouchableOpacity>
-            
-            <Text className="mx-2 font-medium text-gray-700">
-              {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'short' })} {selectedYear}
-            </Text>
-            
-            <TouchableOpacity 
-              onPress={() => changeMonth('next')} 
-              className="p-1"
-              disabled={selectedMonth === new Date().getMonth() + 1 && selectedYear === new Date().getFullYear()}
-            >
-              <Ionicons 
-                name="chevron-forward" 
-                size={20} 
-                color={selectedMonth === new Date().getMonth() + 1 && selectedYear === new Date().getFullYear() ? '#ccc' : '#666'} 
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-        {isLoading ? (
-          <View className="bg-white rounded-xl p-4 shadow-md mb-6 items-center justify-center">
-            <ActivityIndicator size="large" color="#ca7353" />
-            <Text className="mt-2 text-gray-600">Loading summary...</Text>
-          </View>
-        ) : (
-          <View className="bg-white rounded-xl p-4 shadow-md mb-6">
-            <View className="flex-row justify-between mb-4">
-              {/* Income */}
-              <View className="flex-row items-center">
-                <View className="bg-green-100 p-2 rounded-full mr-2">
-                  <Ionicons name="trending-up" size={24} color="#22c55e" />
-                </View>
-                <View>
-                  <Text className="font-semibold text-gray-700">Income</Text>
-                  <Text className="text-xl font-bold text-green-600">₹{monthlySummary.monthly_income.toLocaleString()}</Text>
+            {/* Monthly Summary */}
+            <View className="bg-white rounded-xl mt-4 p-4 shadow-md w-full max-w-md">
+              <View className="flex-row justify-between items-center mb-4">
+                <Text className="text-amber-800 font-bold text-xl">Monthly Summary</Text>
+                
+                <View className="flex-row items-center">
+                  <TouchableOpacity onPress={() => changeMonth('prev')} className="p-2">
+                    <Ionicons name="chevron-back" size={20} color="#78716c" />
+                  </TouchableOpacity>
+                  
+                  <Text className="text-gray-600 font-medium">
+                    {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'short' })} {selectedYear}
+                  </Text>
+                  
+                  <TouchableOpacity onPress={() => changeMonth('next')} className="p-2">
+                    <Ionicons name="chevron-forward" size={20} color="#78716c" />
+                  </TouchableOpacity>
                 </View>
               </View>
               
-              {/* Expenses */}
-              <View className="flex-row items-center">
-                <View className="bg-red-100 p-2 rounded-full mr-2">
-                  <Ionicons name="trending-down" size={24} color="#ef4444" />
+              <View className="flex-row justify-between mb-2">
+                <View className="flex-1">
+                  <Text className="text-gray-500 text-sm">Income</Text>
+                  <Text className="text-green-600 text-xl font-bold">₹{monthlySummary.monthly_income.toLocaleString()}</Text>
                 </View>
-                <View>
-                  <Text className="font-semibold text-gray-700">Expenses</Text>
-                  <Text className="text-xl font-bold text-red-600">₹{monthlySummary.monthly_expenses.toLocaleString()}</Text>
+                
+                <View className="flex-1 items-center">
+                  <Text className="text-gray-500 text-sm">Expenses</Text>
+                  <Text className="text-red-500 text-xl font-bold">₹{monthlySummary.monthly_expenses.toLocaleString()}</Text>
+                </View>
+                
+                <View className="flex-1 items-end">
+                  <Text className="text-gray-500 text-sm">Net Balance</Text>
+                  <Text 
+                    className={`text-xl font-bold ${monthlySummary.net_balance >= 0 ? 'text-green-600' : 'text-red-500'}`}
+                  >
+                    ₹{monthlySummary.net_balance.toLocaleString()}
+                  </Text>
                 </View>
               </View>
             </View>
             
-            {/* Net Balance */}
-            <View className="border-t border-gray-200 pt-3 flex-row justify-between items-center">
-              <Text className="font-semibold text-gray-700">Net Balance</Text>
-              <View className="flex-row items-center">
-                {monthlySummary.net_balance >= 0 ? (
-                  <View className="bg-green-100 px-2 py-1 rounded-full mr-2">
-                    <Text className="text-green-700 font-medium">+₹{monthlySummary.net_balance.toLocaleString()}</Text>
+            {/* Home Screen Animation */}
+            <View className="items-center justify-center my-6 pt-5">
+              <LottieView
+                ref={animation}
+                source={require('../../assets/animations/home_Screen.json')}
+                style={{ width: Dimensions.get('window').width * 0.8, height: 200 }}
+                autoPlay
+                loop
+              />
+            </View>
+          </View>
+          
+          {/* Page 2: Activity Summary */}
+          <View style={{ width: Dimensions.get('window').width, paddingHorizontal: 16, paddingRight: 36 }} className="bg-[#FCEFE9] items-center">
+            {/* Activity Summary Header with Month Selector */}
+            <View className="bg-white rounded-xl mt-4 p-4 shadow-md w-full max-w-md">
+              <View className="flex-row justify-between items-center mb-2">
+                <Text className="text-amber-800 font-bold text-xl">Activity Summary</Text>
+                
+                <View className="flex-row items-center">
+                  <TouchableOpacity onPress={() => changeMonth('prev')} className="p-2">
+                    <Ionicons name="chevron-back" size={20} color="#78716c" />
+                  </TouchableOpacity>
+                  
+                  <Text className="text-gray-600 font-medium">
+                    {new Date(selectedYear, selectedMonth - 1).toLocaleString('default', { month: 'short' })} {selectedYear}
+                  </Text>
+                  
+                  <TouchableOpacity onPress={() => changeMonth('next')} className="p-2">
+                    <Ionicons name="chevron-forward" size={20} color="#78716c" />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+            
+            {/* Activity Metrics */}
+            <View className="mt-4 w-full max-w-md">
+              <View className="flex-row justify-between flex-wrap">
+                <View className="w-[48%] mb-4">
+                  <View className="bg-orange-50 p-3 rounded-lg shadow-sm">
+                    <View className="flex-row justify-between items-center">
+                      <View className="bg-orange-100 p-2 rounded-full">
+                        <Ionicons name="cube-outline" size={20} color="#f97316" />
+                      </View>
+                      <Text className="text-orange-800 font-bold text-lg">{monthlySummary.vendor_transaction_count}</Text>
+                    </View>
+                    <Text className="text-gray-600 text-xs mt-2">Vendor Transactions</Text>
                   </View>
-                ) : (
-                  <View className="bg-red-100 px-2 py-1 rounded-full mr-2">
-                    <Text className="text-red-700 font-medium">-₹{Math.abs(monthlySummary.net_balance).toLocaleString()}</Text>
+                </View>
+                
+                <View className="w-[48%] mb-4">
+                  <View className="bg-blue-50 p-3 rounded-lg shadow-sm">
+                    <View className="flex-row justify-between items-center">
+                      <View className="bg-blue-100 p-2 rounded-full">
+                        <Ionicons name="person-outline" size={20} color="#3b82f6" />
+                      </View>
+                      <Text className="text-blue-800 font-bold text-lg">{monthlySummary.customer_transaction_count}</Text>
+                    </View>
+                    <Text className="text-gray-600 text-xs mt-2">Customer Transactions</Text>
                   </View>
-                )}
+                </View>
+                
+                <View className="w-[48%]">
+                  <View className="bg-green-50 p-3 rounded-lg shadow-sm">
+                    <View className="flex-row justify-between items-center">
+                      <View className="bg-green-100 p-2 rounded-full">
+                        <Ionicons name="cash-outline" size={20} color="#22c55e" />
+                      </View>
+                      <Text className="text-green-800 font-bold text-lg">{monthlySummary.vendor_payment_count}</Text>
+                    </View>
+                    <Text className="text-gray-600 text-xs mt-2">Vendor Payments</Text>
+                  </View>
+                </View>
+                
+                <View className="w-[48%]">
+                  <View className="bg-purple-50 p-3 rounded-lg shadow-sm">
+                    <View className="flex-row justify-between items-center">
+                      <View className="bg-purple-100 p-2 rounded-full">
+                        <Ionicons name="wallet-outline" size={20} color="#a855f7" />
+                      </View>
+                      <Text className="text-purple-800 font-bold text-lg">{monthlySummary.customer_payment_count}</Text>
+                    </View>
+                    <Text className="text-gray-600 text-xs mt-2">Customer Payments</Text>
+                  </View>
+                </View>
               </View>
             </View>
             
-            {/* Activity Summary */}
-            <View className="border-t border-gray-200 mt-3 pt-3">
-              <Text className="font-semibold text-gray-700 mb-2">Activity Summary</Text>
-              <View className="flex-row justify-between">
-                <View className="bg-gray-50 rounded-lg p-2 flex-1 mr-2">
-                  <Text className="text-xs text-gray-500">Vendor Transactions</Text>
-                  <Text className="font-medium">{monthlySummary.vendor_transaction_count}</Text>
-                </View>
-                <View className="bg-gray-50 rounded-lg p-2 flex-1 mr-2">
-                  <Text className="text-xs text-gray-500">Customer Transactions</Text>
-                  <Text className="font-medium">{monthlySummary.customer_transaction_count}</Text>
-                </View>
-                <View className="bg-gray-50 rounded-lg p-2 flex-1">
-                  <Text className="text-xs text-gray-500">Payments</Text>
-                  <Text className="font-medium">{(monthlySummary.vendor_payment_count || 0) + (monthlySummary.customer_payment_count || 0)}</Text>
-                </View>
-              </View>
-            </View>
-            
-            {/* Top Vendors & Customers */}
-            {((monthlySummary.top_vendors && monthlySummary.top_vendors.length > 0) || (monthlySummary.top_customers && monthlySummary.top_customers.length > 0)) && (
-              <View className="border-t border-gray-200 mt-3 pt-3">
+            {/* Top Vendors and Customers */}
+            {((monthlySummary.top_vendors?.length ?? 0) > 0 || (monthlySummary.top_customers?.length ?? 0) > 0) && (
+              <View className="bg-white rounded-xl mt-4 p-4 shadow-md w-full max-w-md">
+                <Text className="text-amber-800 font-bold text-lg mb-2">Top Transactions</Text>
                 <View className="flex-row justify-between">
                   {/* Top Vendors */}
-                  {monthlySummary.top_vendors && monthlySummary.top_vendors.length > 0 && (
-                    <View className="flex-1 mr-2">
-                      <Text className="font-semibold text-gray-700 mb-1">Top Vendors</Text>
-                      {monthlySummary.top_vendors.map((vendor, index) => (
+                  <View className="w-[48%]">
+                    <Text className="font-semibold text-gray-700 mb-1">Top Vendors</Text>
+                    {monthlySummary.top_vendors && (monthlySummary.top_vendors?.length ?? 0) > 0 ? (
+                      monthlySummary.top_vendors.map((vendor, index) => (
                         <View key={vendor.id} className="flex-row justify-between mb-1">
-                          <Text className="text-xs text-gray-600" numberOfLines={1}>{index + 1}. {vendor.name}</Text>
+                          <Text className="text-xs text-gray-600 flex-1 mr-2" numberOfLines={1}>{index + 1}. {vendor.name}</Text>
                           <Text className="text-xs font-medium">₹{vendor.amount.toLocaleString()}</Text>
                         </View>
-                      ))}
-                    </View>
-                  )}
+                      ))
+                    ) : (
+                      <Text className="text-xs text-gray-400 italic">No vendor data</Text>
+                    )}
+                  </View>
                   
                   {/* Top Customers */}
-                  {monthlySummary.top_customers && monthlySummary.top_customers.length > 0 && (
-                    <View className="flex-1">
-                      <Text className="font-semibold text-gray-700 mb-1">Top Customers</Text>
-                      {monthlySummary.top_customers.map((customer, index) => (
+                  <View className="w-[48%]">
+                    <Text className="font-semibold text-gray-700 mb-1">Top Customers</Text>
+                    {monthlySummary.top_customers && (monthlySummary.top_customers?.length ?? 0) > 0 ? (
+                      monthlySummary.top_customers.map((customer, index) => (
                         <View key={customer.id} className="flex-row justify-between mb-1">
-                          <Text className="text-xs text-gray-600" numberOfLines={1}>{index + 1}. {customer.name}</Text>
+                          <Text className="text-xs text-gray-600 flex-1 mr-2" numberOfLines={1}>{index + 1}. {customer.name}</Text>
                           <Text className="text-xs font-medium">₹{customer.amount.toLocaleString()}</Text>
                         </View>
-                      ))}
-                    </View>
-                  )}
+                      ))
+                    ) : (
+                      <Text className="text-xs text-gray-400 italic">No customer data</Text>
+                    )}
+                  </View>
                 </View>
               </View>
             )}
           </View>
-        )}
-        
-        {/* Home Screen Animation */}
-        <View className="items-center justify-center my-6 pt-5">
-          <LottieView
-            ref={animation}
-            source={require('../../assets/animations/home_Screen.json')}
-            style={{ width: Dimensions.get('window').width * 0.8, height: 200 }}
-            autoPlay
-            loop
-          />
-        </View>
+        </ScrollView>
       </ScrollView>
 
       {/* Floating Action Button */}

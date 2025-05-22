@@ -6,12 +6,22 @@ import {
   ScrollView, 
   Switch,
   Alert,
-  Linking
+  Linking,
+  ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import CustomTabBar from '../../components/CustomTabBar';
+
+// Import Firebase reset service
+import { resetAllData, resetCollectionData } from '../../Firebase/resetService';
+
+// Define types for reset service responses
+interface ResetResponse {
+  success: boolean;
+  message: string;
+}
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -21,6 +31,10 @@ export default function SettingsScreen() {
   const [notifications, setNotifications] = useState(true);
   const [autoBackup, setAutoBackup] = useState(true);
   const [currency, setCurrency] = useState('₹');
+  
+  // Reset state
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetOption, setResetOption] = useState('all'); // 'all', 'vendors', 'customers', 'payments'
 
   // Handle theme toggle
   const toggleDarkMode = () => {
@@ -52,21 +66,90 @@ export default function SettingsScreen() {
   const handleReset = () => {
     Alert.alert(
       "Reset Data",
-      "This will delete all your local data. This action cannot be undone. Continue?",
+      "This will delete all your data. This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         { 
-          text: "Reset", 
+          text: "Reset All Data", 
           style: "destructive",
+          onPress: async () => {
+            await performReset('all');
+          } 
+        },
+        {
+          text: "Choose Data to Reset",
           onPress: () => {
-            // Show confirmation
-            setTimeout(() => {
-              Alert.alert("Success", "Your data has been reset successfully!");
-            }, 1000);
+            showResetOptions();
+          }
+        }
+      ]
+    );
+  };
+  
+  // Show reset options dialog
+  const showResetOptions = () => {
+    Alert.alert(
+      "Choose Data to Reset",
+      "Select which data you want to reset:",
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Vendors & Transactions", 
+          style: "destructive",
+          onPress: async () => {
+            await performReset('vendors');
+          } 
+        },
+        { 
+          text: "Customers & Transactions", 
+          style: "destructive",
+          onPress: async () => {
+            await performReset('customers');
+          } 
+        },
+        { 
+          text: "Vendor Payments", 
+          style: "destructive",
+          onPress: async () => {
+            await performReset('vendor_payments');
           } 
         }
       ]
     );
+  };
+  
+  // Perform the actual reset
+  const performReset = async (option: string) => {
+    try {
+      setIsResetting(true);
+      setResetOption(option);
+      
+      let result: ResetResponse;
+      
+      if (option === 'all') {
+        result = await resetAllData() as ResetResponse;
+      } else {
+        result = await resetCollectionData(option) as ResetResponse;
+      }
+      
+      if (result.success) {
+        Alert.alert(
+          "Success", 
+          result.message,
+          [{ text: "OK" }]
+        );
+      } else {
+        throw new Error(result.message);
+      }
+    } catch (error: any) {
+      Alert.alert(
+        "Error", 
+        `Failed to reset data: ${error.message || 'Unknown error'}`,
+        [{ text: "OK" }]
+      );
+    } finally {
+      setIsResetting(false);
+    }
   };
 
   return (
@@ -182,14 +265,26 @@ export default function SettingsScreen() {
           <TouchableOpacity 
             className="flex-row justify-between items-center p-4"
             onPress={handleReset}
+            disabled={isResetting}
           >
             <View className="flex-row items-center">
               <View className="bg-red-100 p-2 rounded-full mr-3">
                 <Ionicons name="trash-outline" size={20} color="#ef4444" />
               </View>
-              <Text className="text-red-600 font-medium">Reset All Data</Text>
+              <View>
+                <Text className="text-red-600 font-medium">Reset All Data</Text>
+                {isResetting && (
+                  <Text className="text-xs text-gray-500">
+                    Resetting {resetOption === 'all' ? 'all data' : resetOption}...
+                  </Text>
+                )}
+              </View>
             </View>
-            <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+            {isResetting ? (
+              <ActivityIndicator size="small" color="#ef4444" />
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+            )}
           </TouchableOpacity>
         </View>
         
