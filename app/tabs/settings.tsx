@@ -7,20 +7,35 @@ import {
   Switch,
   Alert,
   Linking,
-  ActivityIndicator
+  ActivityIndicator,
+  Share
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import CustomTabBar from '../../components/CustomTabBar';
 
-// Import Firebase reset service
-import { resetAllData, resetCollectionData } from '../../Firebase/resetService';
+// Import PDF services
+import { generateAndSharePDF } from '../../Firebase/pdfService';
 
-// Define types for reset service responses
+// Import Firebase services
+import { resetAllData, resetCollectionData } from '../../Firebase/resetService';
+import { getMonthlySummary } from '../../Firebase/summaryService';
+import { getVendors, getVendorTransactions } from '../../Firebase/vendorService';
+import { getCustomers, getCustomerTransactions } from '../../Firebase/customerService';
+import { getVendorPayments } from '../../Firebase/vendorPaymentService';
+
+// Type definitions now in react-native-html-to-pdf.d.ts
+
+// Define types for service responses
 interface ResetResponse {
   success: boolean;
   message: string;
+}
+
+interface FirebaseResponse<T> {
+  data: T;
+  error: string | null;
 }
 
 export default function SettingsScreen() {
@@ -35,6 +50,11 @@ export default function SettingsScreen() {
   // Reset state
   const [isResetting, setIsResetting] = useState(false);
   const [resetOption, setResetOption] = useState('all'); // 'all', 'vendors', 'customers', 'payments'
+  
+  // PDF Export state
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportType, setExportType] = useState('');
+  const [timePeriod, setTimePeriod] = useState('monthly'); // 'monthly', 'quarterly', 'yearly'
 
   // Handle theme toggle
   const toggleDarkMode = () => {
@@ -150,6 +170,73 @@ export default function SettingsScreen() {
     } finally {
       setIsResetting(false);
     }
+  };
+  
+  // Get current year and month
+  const getSelectedYearMonth = () => {
+    const now = new Date();
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth() + 1 // JavaScript months are 0-indexed
+    };
+  };
+  
+  // Function to show time period selection dialog
+  const showTimePeriodOptions = (reportType: 'vendors' | 'customers' | 'overall' | 'vendor_payments') => {
+    Alert.alert(
+      "Select Time Period",
+      "Choose a time period for the report:",
+      [
+        { 
+          text: "Monthly", 
+          onPress: () => {
+            setTimePeriod('monthly');
+            handleExportData(reportType, 'monthly');
+          },
+          style: "default"
+        },
+        { 
+          text: "Quarterly", 
+          onPress: () => {
+            setTimePeriod('quarterly');
+            handleExportData(reportType, 'quarterly');
+          },
+          style: "default"
+        },
+        { 
+          text: "Yearly", 
+          onPress: () => {
+            setTimePeriod('yearly');
+            handleExportData(reportType, 'yearly');
+          },
+          style: "default"
+        },
+        { 
+          text: "Cancel", 
+          style: "cancel",
+          isPreferred: false
+        }
+      ],
+      {
+        cancelable: true,
+        userInterfaceStyle: 'light'
+      }
+    );
+  };
+
+  // Function to handle PDF export
+  const handleExportData = async (
+    exportType: 'vendors' | 'customers' | 'overall' | 'vendor_payments',
+    period: 'monthly' | 'quarterly' | 'yearly' = 'monthly'
+  ) => {
+    // Delegate to the PDF service to handle the entire PDF generation and sharing process
+    await generateAndSharePDF(
+      exportType,
+      currency,
+      setIsExporting,
+      setExportType,
+      period
+    );
   };
 
   return (
@@ -286,6 +373,113 @@ export default function SettingsScreen() {
               <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
             )}
           </TouchableOpacity>
+        </View>
+        
+        {/* Export Section */}
+        <Text className="text-lg font-semibold text-gray-800 mb-3">Export Data as PDF</Text>
+        
+        <View className="bg-white rounded-xl shadow-sm mb-6">
+          {/* Export options start here */}
+
+          {/* Overall Summary Export */}
+          <TouchableOpacity 
+            className="flex-row justify-between items-center p-4 border-b border-gray-100"
+            onPress={() => showTimePeriodOptions('overall')}
+            disabled={isExporting}
+          >
+            <View className="flex-row items-center">
+              <View className="bg-indigo-100 p-2 rounded-full mr-3">
+                <Ionicons name="stats-chart-outline" size={20} color="#6366f1" />
+              </View>
+              <View>
+                <Text className="text-gray-800 font-medium">Overall Summary</Text>
+                {isExporting && exportType === 'overall' && (
+                  <Text className="text-xs text-gray-500">Generating PDF...</Text>
+                )}
+              </View>
+            </View>
+            {isExporting && exportType === 'overall' ? (
+              <ActivityIndicator size="small" color="#6366f1" />
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+            )}
+          </TouchableOpacity>
+          
+          {/* Vendor Payments Export */}
+          <TouchableOpacity 
+            className="flex-row justify-between items-center p-4"
+            onPress={() => showTimePeriodOptions('vendor_payments')}
+            disabled={isExporting}
+          >
+            <View className="flex-row items-center">
+              <View className="bg-rose-100 p-2 rounded-full mr-3">
+                <Ionicons name="card-outline" size={20} color="#e11d48" />
+              </View>
+              <View>
+                <Text className="text-gray-800 font-medium">Vendor Payments</Text>
+                {isExporting && exportType === 'vendor_payments' && (
+                  <Text className="text-xs text-gray-500">Generating PDF...</Text>
+                )}
+              </View>
+            </View>
+            {isExporting && exportType === 'vendor_payments' ? (
+              <ActivityIndicator size="small" color="#e11d48" />
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+            )}
+          </TouchableOpacity>
+          
+          {/* Vendor Transactions Export */}
+          <TouchableOpacity 
+            className="flex-row justify-between items-center p-4 border-b border-gray-100"
+            onPress={() => showTimePeriodOptions('vendors')}
+            disabled={isExporting}
+          >
+            <View className="flex-row items-center">
+              <View className="bg-orange-100 p-2 rounded-full mr-3">
+                <Ionicons name="cube-outline" size={20} color="#f97316" />
+              </View>
+              <View>
+                <Text className="text-gray-800 font-medium">Vendor Transactions</Text>
+                {isExporting && exportType === 'vendors' && (
+                  <Text className="text-xs text-gray-500">Generating PDF...</Text>
+                )}
+              </View>
+            </View>
+            {isExporting && exportType === 'vendors' ? (
+              <ActivityIndicator size="small" color="#f97316" />
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+            )}
+          </TouchableOpacity>
+          
+          {/* Customer Transactions Export */}
+          <TouchableOpacity 
+            className="flex-row justify-between items-center p-4 border-b border-gray-100"
+            onPress={() => showTimePeriodOptions('customers')}
+            disabled={isExporting}
+          >
+            <View className="flex-row items-center">
+              <View className="bg-blue-100 p-2 rounded-full mr-3">
+                <Ionicons name="person-outline" size={20} color="#3b82f6" />
+              </View>
+              <View>
+                <Text className="text-gray-800 font-medium">Customer Transactions</Text>
+                {isExporting && exportType === 'customers' && (
+                  <Text className="text-xs text-gray-500">Generating PDF...</Text>
+                )}
+              </View>
+            </View>
+            {isExporting && exportType === 'customers' ? (
+              <ActivityIndicator size="small" color="#3b82f6" />
+            ) : (
+              <Ionicons name="chevron-forward" size={16} color="#9ca3af" />
+            )}
+          </TouchableOpacity>
+          
+          {/* Other export options can be added here if needed */}
+          
+          
         </View>
         
         {/* Account Section */}
