@@ -17,6 +17,23 @@ import CustomTabBar from '../../components/CustomTabBar';
 
 // Import Firebase services
 import { getVendors, getVendorTransactions, getSingleVendorOutstandingBalance } from '../../Firebase/vendorService';
+import { getVendorRemainingBalance } from '../../Firebase/vendorPaymentService.js';
+
+// Define types for Firebase service responses
+interface FirebaseResponse<T> {
+  data: T;
+  error: string | null;
+}
+
+interface Payment {
+  id: string;
+  vendor_id: string;
+  vendor_name: string;
+  date: string;
+  amount: number;
+  createdAt?: any;
+  updatedAt?: any;
+}
 
 // Define interfaces for our data structures
 // Firebase data structure for vendor transaction items
@@ -44,8 +61,10 @@ interface Vendor {
   name: string;
   totalSpent: number;
   totalOwed: number;
+  remainingBalance?: number;
   lastTransactionDate?: string;
   transactions: VendorTransaction[];
+  payments?: Payment[];
 }
 
 // We'll fetch real vendor data from Firebase instead of using dummy data
@@ -73,6 +92,8 @@ export default function VendorsScreen() {
       
       if (result.error) {
         console.error('Error fetching vendors:', result.error);
+        setVendors([]);
+        setIsLoading(false);
         return;
       }
       
@@ -104,12 +125,21 @@ export default function VendorsScreen() {
           }
         }
         
+        // Get remaining balance after payments
+        const remainingBalanceResult = await getVendorRemainingBalance(vendor.id) as FirebaseResponse<number>;
+        const remainingBalance = remainingBalanceResult.error ? totalOwed : remainingBalanceResult.data;
+        
+        // Define empty payments array for type safety
+        const payments: Payment[] = [];
+        
         return {
           id: vendor.id,
           name: vendor.name,
           totalSpent: totalSpent,
           totalOwed: totalOwed,
+          remainingBalance: remainingBalance,
           lastTransactionDate: latestTransactionDate,
+          payments: payments,
           transactions: [] // We'll load transactions only when a vendor is selected
         };
       }));
@@ -165,6 +195,7 @@ export default function VendorsScreen() {
         totalAmount: transaction.total_amount
       }));
       
+      setSelectedVendor(vendor);
       setVendorTransactions(transformedTransactions);
     } catch (error) {
       console.error('Error selecting vendor:', error);
@@ -219,32 +250,27 @@ export default function VendorsScreen() {
             />
           }
           renderItem={({ item }) => (
-            <TouchableOpacity 
-              className="bg-white p-4 rounded-xl mb-3 shadow-sm border border-gray-100"
+            <TouchableOpacity
+              className="bg-white rounded-xl p-4 mb-3 shadow-sm border border-gray-100"
               onPress={() => handleVendorSelect(item)}
             >
-              <View className="flex-row justify-between items-center mb-1">
-                <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
-                
-                {item.lastTransactionDate ? (
-                  <View className="bg-blue-100 px-2 py-1 rounded-full">
-                    <Text className="text-blue-800 font-medium">{item.lastTransactionDate}</Text>
-                  </View>
-                ) : null}
-              </View>
-              
               <View className="flex-row justify-between items-center">
-                <Text className="text-gray-500">Total Spent: ₹{item.totalSpent.toLocaleString()}</Text>
-                
-                {item.totalOwed > 0 ? (
-                  <View className="bg-red-100 px-3 py-1 rounded-full">
-                    <Text className="text-red-600 font-medium">₹{item.totalOwed.toLocaleString()}</Text>
-                  </View>
-                ) : (
-                  <View className="bg-green-100 px-3 py-1 rounded-full">
-                    <Text className="text-green-600 font-medium">Paid</Text>
-                  </View>
-                )}
+                <View className="flex-1">
+                  <Text className="text-lg font-semibold text-gray-800">{item.name}</Text>
+                  {item.lastTransactionDate && (
+                    <Text className="text-sm text-gray-500">
+                      Last transaction: {item.lastTransactionDate}
+                    </Text>
+                  )}
+                  {item.remainingBalance !== undefined && item.remainingBalance > 0 && (
+                    <Text className="text-sm text-red-600 font-medium mt-1">
+                      Outstanding: ₹{item.remainingBalance.toLocaleString()}
+                    </Text>
+                  )}
+                </View>
+                <View className="flex-row items-center">
+                  <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                </View>
               </View>
             </TouchableOpacity>
           )}
@@ -276,83 +302,109 @@ export default function VendorsScreen() {
     
     return (
       <View className="flex-1">
-        {/* Vendor Header */}
-        <View className="bg-white px-4 py-4 shadow-sm mb-4">
-          <View className="flex-row items-center mb-2">
-            <TouchableOpacity onPress={handleBackToList} className="mr-3">
-              <Ionicons name="arrow-back" size={24} color="#374151" />
-            </TouchableOpacity>
-            <Text className="text-xl font-bold text-gray-800">{selectedVendor.name}</Text>
+        {/* Back Button */}
+        <TouchableOpacity 
+          className="flex-row items-center px-4 py-2"
+          onPress={handleBackToList}
+        >
+          <Ionicons name="arrow-back" size={24} color="#333" />
+          <Text className="ml-2 text-gray-700">Back to Vendors</Text>
+        </TouchableOpacity>
+        
+        {/* Vendor Info */}
+        <View className="bg-white mx-4 mt-2 p-4 rounded-xl shadow-sm">
+          <Text className="text-2xl font-bold text-gray-800">{selectedVendor.name}</Text>
+          
+          <View className="flex-row justify-between mt-4">
+            <View>
+              <Text className="text-gray-500">Total Spent</Text>
+              <Text className="text-xl font-bold text-gray-800">₹{selectedVendor.totalSpent?.toLocaleString() || '0'}</Text>
+            </View>
+            <View>
+              <Text className="text-gray-500">Outstanding</Text>
+              <Text className="text-xl font-bold text-red-600">₹{selectedVendor.remainingBalance?.toLocaleString() || '0'}</Text>
+            </View>
           </View>
           
-          <View className="flex-row justify-between mt-2">
-            <View>
-              <Text className="text-gray-500 text-sm">Total Spent</Text>
-              <Text className="text-gray-800 font-bold">₹{selectedVendor.totalSpent.toLocaleString()}</Text>
-            </View>
-            
-            {selectedVendor.totalOwed > 0 && (
-              <View>
-                <Text className="text-gray-500 text-sm">Outstanding</Text>
-                <Text className="text-red-600 font-bold">₹{selectedVendor.totalOwed.toLocaleString()}</Text>
-              </View>
-            )}
-          </View>
+          {/* Payments Button */}
+          <TouchableOpacity
+            className="bg-green-600 px-4 py-2 rounded-lg mt-4 flex-row justify-center items-center"
+            onPress={() => router.push({
+              pathname: '/tabs/vendorPayments',
+              params: { vendorId: selectedVendor.id, vendorName: selectedVendor.name }
+            })}
+          >
+            <Ionicons name="cash-outline" size={20} color="white" />
+            <Text className="text-white font-semibold ml-2">View Payments</Text>
+          </TouchableOpacity>
         </View>
         
-        {/* Transaction List */}
-        <Text className="px-4 text-lg font-semibold text-gray-800 mb-2">Transaction History</Text>
-        
-        {loadingTransactions ? (
-          <View className="flex-1 justify-center items-center">
-            <ActivityIndicator size="large" color="#ca7353" />
-            <Text className="mt-2 text-gray-600">Loading transactions...</Text>
-          </View>
-        ) : vendorTransactions.length > 0 ? (
-          <FlatList
-            data={vendorTransactions}
-            keyExtractor={(item) => item.id}
-            className="px-4"
-            renderItem={({ item }) => (
-              <View className="bg-white rounded-xl p-4 mb-3 shadow-sm border border-gray-100">
-                <View className="flex-row justify-between items-center mb-3">
-                  <Text className="font-medium text-gray-800">{item.date}</Text>
-                  <Text className="font-bold text-gray-800">₹{item.totalAmount.toLocaleString()}</Text>
+        <ScrollView 
+          className="flex-1 mt-4"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => handleVendorSelect(selectedVendor)}
+              colors={['#ca7353']}
+            />
+          }
+        >
+          
+          {/* Transaction List */}
+          <Text className="px-4 text-lg font-semibold text-gray-800 mb-2">Transaction History</Text>
+          
+          {loadingTransactions ? (
+            <View className="flex-1 justify-center items-center">
+              <ActivityIndicator size="large" color="#ca7353" />
+              <Text className="mt-2 text-gray-600">Loading transactions...</Text>
+            </View>
+          ) : vendorTransactions.length > 0 ? (
+            <FlatList
+              data={vendorTransactions}
+              keyExtractor={(item) => item.id}
+              className="px-4"
+              scrollEnabled={false}
+              renderItem={({ item }) => (
+                <View className="bg-white rounded-xl p-4 mb-3 shadow-sm border border-gray-100">
+                  <View className="flex-row justify-between items-center mb-3">
+                    <Text className="font-medium text-gray-800">{item.date}</Text>
+                    <Text className="font-bold text-gray-800">₹{item.totalAmount.toLocaleString()}</Text>
+                  </View>
+                  
+                  {/* Items */}
+                  {item.items.map((product, index) => (
+                    <View key={index} className="flex-row justify-between mb-1">
+                      <Text className="text-gray-600">
+                        {product.name} ({product.quantity} × ₹{product.unitPrice})
+                      </Text>
+                      <Text className="text-gray-600">
+                        ₹{(parseFloat(product.quantity) * parseFloat(product.unitPrice)).toLocaleString()}
+                      </Text>
+                    </View>
+                  ))}
+                  
+                  {/* Additional Charges */}
+                  {item.transportCharge > 0 && (
+                    <View className="flex-row justify-between mt-1">
+                      <Text className="text-gray-600">Transport Charge</Text>
+                      <Text className="text-gray-600">₹{item.transportCharge.toLocaleString()}</Text>
+                    </View>
+                  )}
                 </View>
-                
-                {/* Items */}
-                {item.items.map((product, index) => (
-                  <View key={index} className="flex-row justify-between mb-1">
-                    <Text className="text-gray-600">
-                      {product.name} ({product.quantity} × ₹{product.unitPrice})
-                    </Text>
-                    <Text className="text-gray-600">
-                      ₹{(parseFloat(product.quantity) * parseFloat(product.unitPrice)).toLocaleString()}
-                    </Text>
-                  </View>
-                ))}
-                
-                {/* Additional Charges */}
-                {item.transportCharge > 0 && (
-                  <View className="flex-row justify-between mt-1">
-                    <Text className="text-gray-600">Transport Charge</Text>
-                    <Text className="text-gray-600">₹{item.transportCharge.toLocaleString()}</Text>
-                  </View>
-                )}
-              </View>
-            )}
-          />
-        ) : (
-          <View className="flex-1 justify-center items-center px-4">
-            <Text className="text-lg text-gray-600 text-center mb-6">No transactions found</Text>
-            <TouchableOpacity 
-              className="bg-blue-600 px-6 py-3 rounded-lg"
-              onPress={handleAddTransaction}
-            >
-              <Text className="text-white font-semibold">Add Transaction</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+              )}
+            />
+          ) : (
+            <View className="flex-1 justify-center items-center px-4">
+              <Text className="text-lg text-gray-600 text-center mb-6">No transactions found</Text>
+              <TouchableOpacity 
+                className="bg-blue-600 px-6 py-3 rounded-lg"
+                onPress={handleAddTransaction}
+              >
+                <Text className="text-white font-semibold">Add Transaction</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </ScrollView>
       </View>
     );
   };

@@ -180,8 +180,14 @@ export default function VendorTransactionScreen() {
       }));
 
       // Prepare transaction data
+      // Format date using local date methods to avoid timezone issues
+      const year = purchaseDate.getFullYear();
+      const month = String(purchaseDate.getMonth() + 1).padStart(2, '0');
+      const day = String(purchaseDate.getDate()).padStart(2, '0');
+      const formattedDate = `${year}-${month}-${day}`;
+      
       const transactionData = {
-        date: purchaseDate.toISOString().split('T')[0],
+        date: formattedDate,
         items: formattedItems,
         material_amount: getMaterialAmount(),
         transport_charge: parseFloat(transportCharge || '0')
@@ -311,7 +317,9 @@ export default function VendorTransactionScreen() {
           >
             <View className="flex-row items-center">
               <Ionicons name="calendar-outline" size={20} color="#d88c9a" className="mr-2" />
-              <Text>{purchaseDate.toISOString().split('T')[0]}</Text>
+              <Text>
+                {`${purchaseDate.getFullYear()}-${String(purchaseDate.getMonth() + 1).padStart(2, '0')}-${String(purchaseDate.getDate()).padStart(2, '0')}`}
+              </Text>
             </View>
             <Ionicons name="chevron-down" size={16} color="#6b7280" />
           </TouchableOpacity>
@@ -326,6 +334,7 @@ export default function VendorTransactionScreen() {
                   setPurchaseDate(selectedDate);
                 }
               }}
+              maximumDate={new Date()} // Can't select future dates
             />
           )}
         </View>

@@ -24,6 +24,12 @@ const tabs: TabItem[] = [
     path: '/tabs/vendors'
   },
   {
+    name: 'Payments',
+    activeIcon: 'cash',
+    inactiveIcon: 'cash-outline',
+    path: '/tabs/vendorPayments'
+  },
+  {
     name: 'Customers',
     activeIcon: 'people',
     inactiveIcon: 'people-outline',

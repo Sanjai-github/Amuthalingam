@@ -58,8 +58,15 @@ export default function CustomerTransactionScreen() {
   const [items, setItems] = useState<Item[]>([{ name: '', quantity: '', unitPrice: '' }]);
   const [isManualMaterialAmount, setIsManualMaterialAmount] = useState(false);
   const [materialAmount, setMaterialAmount] = useState('');
+  // Initialize payment date using local date methods to avoid timezone issues
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = String(today.getMonth() + 1).padStart(2, '0');
+  const day = String(today.getDate()).padStart(2, '0');
+  const formattedToday = `${year}-${month}-${day}`;
+  
   const [payments, setPayments] = useState<Payment[]>([{ 
-    date: new Date().toISOString().split('T')[0], 
+    date: formattedToday, 
     amount: '' 
   }]);
   const [showPaymentDatePicker, setShowPaymentDatePicker] = useState<number | null>(null);
@@ -141,7 +148,14 @@ export default function CustomerTransactionScreen() {
   };
 
   const addPayment = () => {
-    setPayments([...payments, { date: new Date().toISOString().split('T')[0], amount: '' }]);
+    // Fix timezone issue by using local date methods
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    const formattedToday = `${year}-${month}-${day}`;
+    
+    setPayments([...payments, { date: formattedToday, amount: '' }]);
   };
 
   const updatePayment = (index: number, field: keyof Payment, value: string) => {
@@ -233,8 +247,14 @@ export default function CustomerTransactionScreen() {
       }));
 
       // Prepare transaction data
+      // Format date using local date methods to avoid timezone issues
+      const year = saleDate.getFullYear();
+      const month = String(saleDate.getMonth() + 1).padStart(2, '0');
+      const day = String(saleDate.getDate()).padStart(2, '0');
+      const formattedDate = `${year}-${month}-${day}`;
+      
       const transactionData = {
-        date: saleDate.toISOString().split('T')[0],
+        date: formattedDate,
         items: formattedItems,
         material_amount: getMaterialAmount(),
         payments: formattedPayments
@@ -364,7 +384,9 @@ export default function CustomerTransactionScreen() {
           >
             <View className="flex-row items-center">
               <Ionicons name="calendar-outline" size={20} color="#d88c9a" className="mr-2" />
-              <Text>{saleDate.toISOString().split('T')[0]}</Text>
+              <Text>
+                {`${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}-${String(saleDate.getDate()).padStart(2, '0')}`}
+              </Text>
             </View>
             <Ionicons name="chevron-down" size={16} color="#6b7280" />
           </TouchableOpacity>
@@ -379,6 +401,7 @@ export default function CustomerTransactionScreen() {
                   setSaleDate(selectedDate);
                 }
               }}
+              maximumDate={new Date()} // Can't select future dates
             />
           )}
         </View>
@@ -562,9 +585,15 @@ export default function CustomerTransactionScreen() {
                     onChange={(event, selectedDate) => {
                       setShowPaymentDatePicker(null);
                       if (selectedDate) {
-                        updatePayment(index, 'date', selectedDate.toISOString().split('T')[0]);
+                        // Fix timezone issue by using local date methods
+                        const year = selectedDate.getFullYear();
+                        const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+                        const day = String(selectedDate.getDate()).padStart(2, '0');
+                        const formattedDate = `${year}-${month}-${day}`;
+                        updatePayment(index, 'date', formattedDate);
                       }
                     }}
+                    maximumDate={new Date()} // Can't select future dates
                   />
                 )}
               </View>

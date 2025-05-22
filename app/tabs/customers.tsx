@@ -11,8 +11,10 @@ import {
   RefreshControl,
   Modal,
   KeyboardAvoidingView,
-  Platform
+  Platform,
+  Pressable
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -289,12 +291,39 @@ export default function CustomersScreen() {
   const [selectedCustomerForPayment, setSelectedCustomerForPayment] = useState<Customer | null>(null);
   const [selectedTransactionForPayment, setSelectedTransactionForPayment] = useState<CustomerTransaction | null>(null);
   
+  // Date picker state
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [datePickerDate, setDatePickerDate] = useState(new Date());
+  
+  // Handle date change from date picker
+  const onDateChange = (event: any, selectedDate?: Date) => {
+    setShowDatePicker(false);
+    if (selectedDate) {
+      setDatePickerDate(selectedDate);
+      
+      // Fix timezone issue by using local date methods instead of toISOString
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0'); // Months are 0-indexed
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      
+      // Format date as YYYY-MM-DD
+      const formattedDate = `${year}-${month}-${day}`;
+      setPaymentDate(formattedDate);
+    }
+  };
+  
   // Open payment modal directly from customer list
   const openDirectPaymentModal = async (customer: Customer) => {
     try {
       setSelectedCustomerForPayment(customer);
       setPaymentAmount('');
-      setPaymentDate(new Date().toISOString().split('T')[0]);
+      
+      // Fix timezone issue by using local date methods
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      setPaymentDate(`${year}-${month}-${day}`);
       
       // Fetch the latest transaction for this customer
       const result = await getCustomerTransactions(customer.id);
@@ -494,7 +523,14 @@ export default function CustomersScreen() {
   // Open payment modal for transaction detail view
   const openPaymentModal = () => {
     setPaymentAmount('');
-    setPaymentDate(new Date().toISOString().split('T')[0]);
+    
+    // Fix timezone issue by using local date methods
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    setPaymentDate(`${year}-${month}-${day}`);
+    
     setSelectedCustomerForPayment(null);
     setSelectedTransactionForPayment(null);
     setPaymentModalVisible(true);
@@ -583,7 +619,8 @@ export default function CustomersScreen() {
               {(item.totalDue || 0) > 10 && (
                 <View className="mt-3 flex-row justify-end">
                   <TouchableOpacity 
-                    className="bg-blue-600 rounded-lg py-1 px-3"
+                    className="rounded-lg py-1 px-3"
+                    style={{ backgroundColor: '#ca7353' }}
                     onPress={() => openDirectPaymentModal(item)}
                   >
                     <Text className="text-white font-medium text-sm">Add Payment</Text>
@@ -840,12 +877,35 @@ export default function CustomersScreen() {
             
             <View className="mb-4">
               <Text className="text-gray-700 mb-1">Payment Date</Text>
-              <TextInput
-                className="border border-gray-300 rounded-lg px-3 py-2 text-gray-800"
-                value={paymentDate}
-                onChangeText={setPaymentDate}
-                placeholder="YYYY-MM-DD"
-              />
+              <View className="flex-row items-center">
+                <TextInput
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-gray-800 flex-1"
+                  value={paymentDate}
+                  onChangeText={setPaymentDate}
+                  placeholder="YYYY-MM-DD"
+                  editable={false} // Make it read-only since we're using the date picker
+                />
+                <Pressable 
+                  className="ml-2 bg-gray-200 p-2 rounded-lg"
+                  onPress={() => {
+                    // Show the date picker
+                    setShowDatePicker(true);
+                  }}
+                >
+                  <Ionicons name="calendar-outline" size={24} color="#374151" />
+                </Pressable>
+              </View>
+              
+              {/* Date Picker */}
+              {showDatePicker && (
+                <DateTimePicker
+                  value={datePickerDate}
+                  mode="date"
+                  display="default"
+                  onChange={onDateChange}
+                  maximumDate={new Date()} // Can't select future dates
+                />
+              )}
             </View>
             
             <View className="mb-6">
@@ -868,7 +928,8 @@ export default function CustomersScreen() {
               </TouchableOpacity>
               
               <TouchableOpacity 
-                className="bg-blue-600 rounded-lg py-2 px-4"
+                className="rounded-lg py-2 px-4"
+                style={{ backgroundColor: '#ca7353' }}
                 onPress={handleAddPayment}
                 disabled={addingPayment}
               >

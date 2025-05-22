@@ -23,7 +23,10 @@ const SUMMARIES_COLLECTION = 'summaries';
 // Get current user ID
 const getCurrentUserId = () => {
   const user = auth.currentUser;
-  if (!user) throw new Error('No authenticated user found');
+  if (!user) {
+    console.warn('No authenticated user found, using default path');
+    return 'default';
+  }
   return user.uid;
 };
 
@@ -37,23 +40,39 @@ export const calculateMonthlySummary = async (year, month) => {
     
     // Start and end date for the month
     const startDate = `${year}-${formattedMonth}-01`;
-    const lastDay = new Date(year, month, 0).getDate();
+    
+    // Get the last day of the month
+    // Note: month parameter in Date constructor is 0-indexed, so we pass month-1
+    const lastDay = new Date(year, parseInt(formattedMonth) - 1 + 1, 0).getDate();
     const endDate = `${year}-${formattedMonth}-${lastDay}`;
     
     // Initialize summary data
     let monthlyIncome = 0;
     let monthlyExpenses = 0;
+    let vendorTransactionCount = 0;
+    let customerTransactionCount = 0;
+    let vendorPaymentCount = 0;
+    let customerPaymentCount = 0;
+    let topVendors = [];
+    let topCustomers = [];
     
     // Calculate vendor expenses for the month
-    const vendorsRef = collection(db, `users/${userId}/${VENDORS_COLLECTION}`);
+    // Check if we should use the users collection path or not
+    const vendorsPath = userId === 'default' ? VENDORS_COLLECTION : `users/${userId}/${VENDORS_COLLECTION}`;
+    const vendorsRef = collection(db, vendorsPath);
     const vendorsSnapshot = await getDocs(vendorsRef);
+    
+    // Track vendor spending for top vendors calculation
+    const vendorSpending = {};
     
     for (const vendorDoc of vendorsSnapshot.docs) {
       const vendorId = vendorDoc.id;
-      const transactionsRef = collection(
-        db, 
-        `users/${userId}/${VENDORS_COLLECTION}/${vendorId}/${TRANSACTIONS_SUBCOLLECTION}`
-      );
+      const vendorName = vendorDoc.data().name || 'Unknown Vendor';
+      const transactionsPath = userId === 'default' 
+        ? `${VENDORS_COLLECTION}/${vendorId}/${TRANSACTIONS_SUBCOLLECTION}`
+        : `users/${userId}/${VENDORS_COLLECTION}/${vendorId}/${TRANSACTIONS_SUBCOLLECTION}`;
+      
+      const transactionsRef = collection(db, transactionsPath);
       
       // Query transactions for the specific month
       const q = query(
@@ -63,24 +82,72 @@ export const calculateMonthlySummary = async (year, month) => {
       );
       
       const transactionsSnapshot = await getDocs(q);
+      let vendorTotal = 0;
       
       // Sum up all transaction amounts
       transactionsSnapshot.forEach((transactionDoc) => {
         const transaction = transactionDoc.data();
-        monthlyExpenses += transaction.total_amount || 0;
+        const amount = transaction.total_amount || 0;
+        monthlyExpenses += amount;
+        vendorTotal += amount;
+        vendorTransactionCount++;
       });
+      
+      // Track this vendor's spending if they had transactions this month
+      if (vendorTotal > 0) {
+        vendorSpending[vendorId] = {
+          id: vendorId,
+          name: vendorName,
+          amount: vendorTotal
+        };
+      }
+      
+      // Check for vendor payments in this month
+      const vendorPaymentsPath = userId === 'default' 
+        ? 'vendor_payments' 
+        : `users/${userId}/vendor_payments`;
+      
+      try {
+        // First query with just the vendor_id filter
+        const paymentsQuery = query(
+          collection(db, vendorPaymentsPath),
+          where('vendor_id', '==', vendorId)
+        );
+        
+        const paymentsSnapshot = await getDocs(paymentsQuery);
+        
+        // Then filter the results in memory for the date range
+        paymentsSnapshot.forEach((doc) => {
+          const payment = doc.data();
+          const paymentDate = payment.date;
+          
+          // Check if the payment date is within our target month
+          if (paymentDate >= startDate && paymentDate <= endDate) {
+            vendorPaymentCount++;
+          }
+        });
+      } catch (error) {
+        console.error(`Error fetching payments for vendor ${vendorId}:`, error);
+        // Continue processing other vendors even if one fails
+      }
     }
     
     // Calculate customer income for the month
-    const customersRef = collection(db, `users/${userId}/${CUSTOMERS_COLLECTION}`);
+    const customersPath = userId === 'default' ? CUSTOMERS_COLLECTION : `users/${userId}/${CUSTOMERS_COLLECTION}`;
+    const customersRef = collection(db, customersPath);
     const customersSnapshot = await getDocs(customersRef);
+    
+    // Track customer revenue for top customers calculation
+    const customerRevenue = {};
     
     for (const customerDoc of customersSnapshot.docs) {
       const customerId = customerDoc.id;
-      const transactionsRef = collection(
-        db, 
-        `users/${userId}/${CUSTOMERS_COLLECTION}/${customerId}/${TRANSACTIONS_SUBCOLLECTION}`
-      );
+      const customerName = customerDoc.data().name || 'Unknown Customer';
+      const transactionsPath = userId === 'default' 
+        ? `${CUSTOMERS_COLLECTION}/${customerId}/${TRANSACTIONS_SUBCOLLECTION}`
+        : `users/${userId}/${CUSTOMERS_COLLECTION}/${customerId}/${TRANSACTIONS_SUBCOLLECTION}`;
+      
+      const transactionsRef = collection(db, transactionsPath);
       
       // Query transactions for the specific month
       const q = query(
@@ -90,6 +157,9 @@ export const calculateMonthlySummary = async (year, month) => {
       );
       
       const transactionsSnapshot = await getDocs(q);
+      customerTransactionCount += transactionsSnapshot.size;
+      
+      let customerTotal = 0;
       
       // Sum up all payments made in this month
       transactionsSnapshot.forEach((transactionDoc) => {
@@ -98,19 +168,44 @@ export const calculateMonthlySummary = async (year, month) => {
           transaction.payments.forEach(payment => {
             // Check if payment date is within the month
             if (payment.date >= startDate && payment.date <= endDate) {
-              monthlyIncome += payment.amount || 0;
+              const amount = payment.amount || 0;
+              monthlyIncome += amount;
+              customerTotal += amount;
+              customerPaymentCount++;
             }
           });
         }
       });
+      
+      // Track this customer's revenue if they made payments this month
+      if (customerTotal > 0) {
+        customerRevenue[customerId] = {
+          id: customerId,
+          name: customerName,
+          amount: customerTotal
+        };
+      }
     }
+    
+    // Get top 3 vendors by spending
+    topVendors = Object.values(vendorSpending)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 3);
+    
+    // Get top 3 customers by revenue
+    topCustomers = Object.values(customerRevenue)
+      .sort((a, b) => b.amount - a.amount)
+      .slice(0, 3);
     
     // Calculate net balance
     const netBalance = monthlyIncome - monthlyExpenses;
     
     // Store the summary in Firestore
-    const summaryId = `${year}-${formattedMonth}`;
-    const summaryRef = doc(db, `users/${userId}/${SUMMARIES_COLLECTION}`, summaryId);
+    const summaryPath = userId === 'default' 
+      ? SUMMARIES_COLLECTION 
+      : `users/${userId}/${SUMMARIES_COLLECTION}`;
+    
+    const summaryRef = doc(db, summaryPath, `${year}_${formattedMonth}`);
     
     await setDoc(summaryRef, {
       year,
@@ -118,16 +213,30 @@ export const calculateMonthlySummary = async (year, month) => {
       monthly_income: monthlyIncome,
       monthly_expenses: monthlyExpenses,
       net_balance: netBalance,
-      updatedAt: serverTimestamp()
+      vendor_transaction_count: vendorTransactionCount,
+      customer_transaction_count: customerTransactionCount,
+      vendor_payment_count: vendorPaymentCount,
+      customer_payment_count: customerPaymentCount,
+      top_vendors: topVendors,
+      top_customers: topCustomers,
+      updated_at: serverTimestamp()
     });
     
-    return { 
-      data: { 
+    return {
+      data: {
+        year,
+        month: parseInt(formattedMonth),
         monthly_income: monthlyIncome,
         monthly_expenses: monthlyExpenses,
-        net_balance: netBalance
-      }, 
-      error: null 
+        net_balance: netBalance,
+        vendor_transaction_count: vendorTransactionCount,
+        customer_transaction_count: customerTransactionCount,
+        vendor_payment_count: vendorPaymentCount,
+        customer_payment_count: customerPaymentCount,
+        top_vendors: topVendors,
+        top_customers: topCustomers
+      },
+      error: null
     };
   } catch (error) {
     console.error('Error calculating monthly summary:', error);
@@ -145,7 +254,8 @@ export const getMonthlySummary = async (year, month) => {
     
     // Get the summary document
     const summaryId = `${year}-${formattedMonth}`;
-    const summaryRef = doc(db, `users/${userId}/${SUMMARIES_COLLECTION}`, summaryId);
+    const summariesPath = userId === 'default' ? SUMMARIES_COLLECTION : `users/${userId}/${SUMMARIES_COLLECTION}`;
+    const summaryRef = doc(db, summariesPath, summaryId);
     const summarySnap = await getDoc(summaryRef);
     
     if (summarySnap.exists()) {
