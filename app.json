@@ -4,7 +4,7 @@
     "slug": "tracker",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icons/navigation/home.svg",
+    "icon": "./assets/logo.png",
     "scheme": "tracker",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
