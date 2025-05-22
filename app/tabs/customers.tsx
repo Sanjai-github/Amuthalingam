@@ -631,14 +631,14 @@ export default function CustomersScreen() {
           )}
         />
       ) : (
-        <View className="flex-1 justify-center items-center px-4">
-          <View className="w-64 h-64 mb-4">
+        <View className="flex-1 justify-center items-center px-4">          
             <LottieView
               source={require('../../assets/animations/empty_customers.json')}
               autoPlay
               loop
-            />
-          </View>
+              style={{ width: 240, height: 240 }}
+              resizeMode="contain"
+            />          
           <Text className="text-lg text-gray-600 text-center mb-6">No customers found</Text>
           <TouchableOpacity 
             className="bg-blue-600 px-6 py-3 rounded-lg"

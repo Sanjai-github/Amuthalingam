@@ -330,12 +330,13 @@ export default function VendorPaymentsScreen() {
             )}
             ListEmptyComponent={
               <View className="flex-1 justify-center items-center py-10">
-                <Text className="text-gray-500 text-lg mb-4">No vendors found</Text>
+                <Text className="text-gray-500 text-lg mb-4">No vendors Payments found</Text>
                 <LottieView
-                  source={require('../../assets/animations/empty_vendors.json')}
+                  source={require('../../assets/animations/empty_transactions.json')}
                   style={{ width: 200, height: 200 }}
                   autoPlay
                   loop
+                  resizeMode="contain"
                 />
               </View>
             }
@@ -344,10 +345,11 @@ export default function VendorPaymentsScreen() {
           <View className="flex-1 justify-center items-center">
             <Text className="text-gray-500 text-lg mb-4">No vendors found</Text>
             <LottieView
-              source={require('../../assets/animations/empty_vendors.json')}
+              source={require('../../assets/animations/empty_transactions.json')}
               style={{ width: 200, height: 200 }}
               autoPlay
               loop
+              resizeMode="contain"
             />
           </View>
         )}

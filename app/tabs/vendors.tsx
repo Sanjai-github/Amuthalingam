@@ -277,13 +277,13 @@ export default function VendorsScreen() {
         />
       ) : (
         <View className="flex-1 justify-center items-center px-4">
-          <View className="w-64 h-64 mb-4">
-            <LottieView
-              source={require('../../assets/animations/empty_vendors.json')}
-              autoPlay
-              loop
-            />
-          </View>
+          <LottieView
+            source={require('../../assets/animations/empty_vendors.json')}
+            autoPlay
+            loop
+            style={{ width: 240, height: 240 }}
+            resizeMode="contain"
+          />
           <Text className="text-lg text-gray-600 text-center mb-6">No vendors found</Text>
           <TouchableOpacity 
             className="bg-blue-600 px-6 py-3 rounded-lg"
