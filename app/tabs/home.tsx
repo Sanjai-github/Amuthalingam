@@ -72,27 +72,19 @@ export default function HomeScreen() {
   const [currentPage, setCurrentPage] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
   
-  // Handle horizontal scroll with improved page detection
+  // Handle horizontal scroll with smoother detection
   const handleScroll = (event: { nativeEvent: { contentOffset: { x: number } } }) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
     const pageWidth = Dimensions.get('window').width;
     // Calculate current page with better precision
-    const currentPage = Math.round(contentOffsetX / pageWidth);
+    const currentPage = Math.floor(contentOffsetX / pageWidth + 0.5);
     setCurrentPage(currentPage);
     
-    // Auto-snap to the nearest page when scrolling stops
-    const isCloseToPage = Math.abs(contentOffsetX - (currentPage * pageWidth)) < 20;
-    if (isCloseToPage && scrollViewRef.current) {
-      setTimeout(() => {
-        scrollViewRef.current?.scrollTo({
-          x: currentPage * pageWidth,
-          animated: true
-        });
-      }, 100);
-    }
+    // We've removed the auto-snap logic to make scrolling smoother
+    // The pagingEnabled property will handle the snapping naturally
   };
 
-  // Function to scroll to a specific page with improved animation
+  // Function to scroll to a specific page with smoother animation
   const scrollToPage = (pageIndex: number) => {
     if (scrollViewRef.current) {
       scrollViewRef.current.scrollTo({
@@ -351,11 +343,9 @@ export default function HomeScreen() {
           pagingEnabled
           showsHorizontalScrollIndicator={false}
           onScroll={handleScroll}
-          scrollEventThrottle={16}
-          decelerationRate="fast"
-          snapToInterval={Dimensions.get('window').width}
+          scrollEventThrottle={32}
+          decelerationRate="normal"
           snapToAlignment="center"
-          disableIntervalMomentum={true}
           contentOffset={{ x: 0, y: 0 }}
           contentContainerStyle={{ width: Dimensions.get('window').width * 2 }}
           style={{ width: Dimensions.get('window').width }}
