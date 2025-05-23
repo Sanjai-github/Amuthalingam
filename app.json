@@ -55,6 +55,12 @@
     "experiments": {
       "typedRoutes": true
     },
-    "owner": "sanjaiexpo"
+    "owner": "sanjaiexpo",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/dbefcc48-9635-46c3-94e2-11fa5ac4d78b"
+    }
   }
 }
