@@ -1,41 +1,34 @@
 {
   "project_info": {
-    "project_number": "YOUR_PROJECT_NUMBER",
-    "project_id": "project-track-XXXXX",
-    "storage_bucket": "project-track-XXXXX.appspot.com"
+    "project_number": "799309050681",
+    "project_id": "amuthalingam-tracker",
+    "storage_bucket": "amuthalingam-tracker.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:YOUR_PROJECT_NUMBER:android:YOUR_APP_ID",
+        "mobilesdk_app_id": "1:799309050681:android:76d22a4101948b3a66eee8",
         "android_client_info": {
-          "package_name": "com.projecttrack.app"
+          "package_name": "com.tracker.app"
         }
       },
       "oauth_client": [
         {
-          "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+          "client_id": "799309050681-goqecd67iud9abdjhc38ajbppoicuv1a.apps.googleusercontent.com",
           "client_type": 3
         }
       ],
       "api_key": [
         {
-          "current_key": "YOUR_API_KEY"
+          "current_key": "AIzaSyBbnN1lNoAUKbxOk9d9qaGGiUfrK3RYt_I"
         }
       ],
       "services": {
         "appinvite_service": {
           "other_platform_oauth_client": [
             {
-              "client_id": "YOUR_CLIENT_ID.apps.googleusercontent.com",
+              "client_id": "799309050681-1ogm265otac38ff8vt9hsd74dm2dve7q.apps.googleusercontent.com",
               "client_type": 3
-            },
-            {
-              "client_id": "YOUR_IOS_CLIENT_ID.apps.googleusercontent.com",
-              "client_type": 2,
-              "ios_info": {
-                "bundle_id": "com.projecttrack.app"
-              }
             }
           ]
         }

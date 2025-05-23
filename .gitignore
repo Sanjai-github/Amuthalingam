@@ -37,3 +37,7 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# Adding native folders to ignore for Expo CNG builds
+/android
+/ios

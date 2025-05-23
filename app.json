@@ -9,23 +9,18 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "extra": {
+      "router": {},
       "eas": {
-        "projectId": "44358d90-0693-4692-8977-6f493af1a49f"
-      },
-      "router": {}
+        "projectId": "dbefcc48-9635-46c3-94e2-11fa5ac4d78b"
+      }
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.tracker.app",
-      "config": {
-        "googleSignIn": {
-          "reservedClientId": "com.googleusercontent.apps.799309050681-goqecd67iud9abdjhc38ajbppoicuv1a"
-        }
-      }
+      "bundleIdentifier": "com.tracker.app"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icons/navigation/home.svg",
+        "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#ffffff"
       },
       "package": "com.tracker.app",
@@ -35,14 +30,14 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/icons/navigation/home.svg"
+      "favicon": "./assets/logo.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image": "./assets/animations/splash_screen.json",
+          "image": "./assets/logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
@@ -60,6 +55,6 @@
     "experiments": {
       "typedRoutes": true
     },
-    "owner": "sanjai-expo"
+    "owner": "sanjaiexpo"
   }
 }
