@@ -8,7 +8,8 @@ import {
   where, 
   orderBy, 
   limit,
-  serverTimestamp 
+  serverTimestamp,
+  onSnapshot
 } from 'firebase/firestore';
 import { db, auth } from './config';
 import { getVendorOutstandingBalance } from './vendorService';
@@ -480,6 +481,60 @@ export const getYearlySummary = async (year) => {
  * @param {string} endDate - End date in YYYY-MM-DD format
  * @returns {Promise<Object>} Transaction history or error
  */
+/**
+ * Subscribe to monthly summary updates for a specific month
+ * @param {number} year - Year to get summary for
+ * @param {number} month - Month to get summary for (1-12)
+ * @param {Function} callback - Callback function to receive updates
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeMonthlySummary = (year, month, callback) => {
+  try {
+    const userId = getCurrentUserId();
+    
+    // Format month to ensure it's two digits
+    const formattedMonth = month.toString().padStart(2, '0');
+    
+    // Document ID for the monthly summary
+    const summaryId = `${year}_${formattedMonth}`;
+    
+    // Get reference to the summary document
+    const summaryPath = userId === 'default' 
+      ? `${SUMMARIES_COLLECTION}/${summaryId}`
+      : `users/${userId}/${SUMMARIES_COLLECTION}/${summaryId}`;
+    const summaryRef = doc(db, summaryPath);
+    
+    // Setup real-time listener
+    const unsubscribe = onSnapshot(summaryRef, (docSnapshot) => {
+      if (docSnapshot.exists()) {
+        const summaryData = docSnapshot.data();
+        callback(summaryData);
+      } else {
+        // Document doesn't exist yet, return default values
+        callback({
+          ...DEFAULT_MONTHLY_SUMMARY,
+          year,
+          month
+        });
+      }
+    }, (error) => {
+      console.error('Error subscribing to monthly summary:', error);
+      // Return default values on error
+      callback({
+        ...DEFAULT_MONTHLY_SUMMARY,
+        year,
+        month
+      });
+    });
+    
+    return unsubscribe;
+  } catch (error) {
+    console.error('Error setting up monthly summary subscription:', error);
+    // Return a no-op unsubscribe function
+    return () => {};
+  }
+};
+
 export const getTransactionHistory = async (startDate, endDate) => {
   try {
     const userId = getCurrentUserId();

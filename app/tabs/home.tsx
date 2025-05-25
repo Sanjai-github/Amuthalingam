@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Dimensions, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { View, Text, TouchableOpacity, Modal, StyleSheet, ScrollView, Dimensions, ActivityIndicator, RefreshControl, AppState } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { BlurView } from 'expo-blur';
@@ -14,10 +14,17 @@ import { User } from 'firebase/auth';
 // Import Firebase services
 import { 
   getMonthlySummary, 
-  calculateMonthlySummary 
+  calculateMonthlySummary,
+  subscribeMonthlySummary
 } from '../../Firebase/summaryService';
-import { getVendorOutstandingBalance } from '../../Firebase/vendorService';
-import { getCustomerOutstandingBalance } from '../../Firebase/customerService';
+import { 
+  getVendorOutstandingBalance,
+  subscribeVendorOutstandingBalance 
+} from '../../Firebase/vendorService';
+import { 
+  getCustomerOutstandingBalance,
+  subscribeCustomerOutstandingBalance 
+} from '../../Firebase/customerService';
 
 // Define interfaces for our data structures
 interface MonthlySummary {
@@ -159,8 +166,8 @@ export default function HomeScreen() {
     }
   };
   
-  // Change month for summary
-  const changeMonth = async (direction: 'prev' | 'next') => {
+  // Change month for summary - simplified now that we use listeners
+  const changeMonth = (direction: 'prev' | 'next') => {
     let newMonth = selectedMonth;
     let newYear = selectedYear;
     
@@ -187,78 +194,104 @@ export default function HomeScreen() {
       return;
     }
     
+    // Update state - this will trigger the useEffect to change listeners
     setSelectedYear(newYear);
     setSelectedMonth(newMonth);
-    
-    // Show loading state
-    setIsLoading(true);
-    
-    try {
-      // First calculate the summary to ensure it's up-to-date
-      //console.log(`Calculating summary for ${newYear}-${newMonth}`);
-      await calculateMonthlySummary(newYear, newMonth);
-      
-      // Then fetch the updated summary
-      const result = await getMonthlySummary(newYear, newMonth);
-      if ('error' in result && !result.error && 'data' in result && result.data) {
-        setMonthlySummary({
-          monthly_income: result.data.monthly_income || 0,
-          monthly_expenses: result.data.monthly_expenses || 0,
-          net_balance: result.data.monthly_net_balance || (result.data.monthly_income - result.data.monthly_expenses) || 0, // Maps to monthly_net_balance in Firebase
-          year: newYear,
-          month: newMonth,
-          vendor_transaction_count: result.data.vendor_transaction_count || 0,
-          customer_transaction_count: result.data.customer_transaction_count || 0,
-          vendor_payment_count: result.data.vendor_payment_count || 0,
-          customer_payment_count: result.data.customer_payment_count || 0,
-          top_vendors: result.data.top_vendors || [],
-          top_customers: result.data.top_customers || []
-        });
-      } else {
-        // Reset summary if no data found
-        console.log('No summary data found for new month, using zeros');
-        setMonthlySummary({
-          monthly_income: 0,
-          monthly_expenses: 0,
-          net_balance: 0,
-          year: newYear,
-          month: newMonth,
-          vendor_transaction_count: 0,
-          customer_transaction_count: 0,
-          vendor_payment_count: 0,
-          customer_payment_count: 0,
-          top_vendors: [],
-          top_customers: []
-        });
-      }
-    } catch (error) {
-      console.error('Error changing month:', error);
-      // Reset summary on error
-      setMonthlySummary({
-        monthly_income: 0,
-        monthly_expenses: 0,
-        net_balance: 0,
-        year: newYear,
-        month: newMonth,
-        vendor_transaction_count: 0,
-        customer_transaction_count: 0,
-        vendor_payment_count: 0,
-        customer_payment_count: 0,
-        top_vendors: [],
-        top_customers: []
-      });
-    } finally {
-      setIsLoading(false);
-    }
+    setIsLoading(true); // Show loading indicator
   };
   
   // Handle pull-to-refresh
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchData(true);
+    // Force recalculation of summary data
+    await calculateMonthlySummary(selectedYear, selectedMonth);
+    setRefreshing(false);
   };
   
+  // Reference to track if the component is mounted
+  const isMounted = useRef(true);
+  // Reference to track active listeners
+  const listeners = useRef<Array<UnsubscribeFunction>>([]);
+  // Track AppState for foreground/background
+  const appState = useRef(AppState.currentState);
+
+  // Define types for callback functions
+  type BalanceCallback = (balance: number) => void;
+  type SummaryCallback = (summary: MonthlySummary) => void;
+  type UnsubscribeFunction = () => void;
+
+  // Function to setup real-time listeners
+  const setupListeners = useCallback(() => {
+    // Clear any existing listeners
+    if (listeners.current.length > 0) {
+      listeners.current.forEach(unsubscribe => unsubscribe());
+      listeners.current = [];
+    }
+
+    // Setup listener for vendor outstanding balance
+    const vendorUnsubscribe = subscribeVendorOutstandingBalance((balance: number) => {
+      if (isMounted.current) {
+        setVendorOutstanding(balance);
+      }
+    }) as UnsubscribeFunction;
+    listeners.current.push(vendorUnsubscribe);
+
+    // Setup listener for customer outstanding balance
+    const customerUnsubscribe = subscribeCustomerOutstandingBalance((balance: number) => {
+      if (isMounted.current) {
+        setCustomerOutstanding(balance);
+      }
+    }) as UnsubscribeFunction;
+    listeners.current.push(customerUnsubscribe);
+
+    // Setup listener for monthly summary
+    const summaryUnsubscribe = subscribeMonthlySummary(selectedYear, selectedMonth, (summary: any) => {
+      if (isMounted.current && summary) {
+        setMonthlySummary({
+          monthly_income: summary.monthly_income || 0,
+          monthly_expenses: summary.monthly_expenses || 0,
+          net_balance: summary.monthly_net_balance || (summary.monthly_income - summary.monthly_expenses) || 0,
+          year: selectedYear,
+          month: selectedMonth,
+          vendor_transaction_count: summary.vendor_transaction_count || 0,
+          customer_transaction_count: summary.customer_transaction_count || 0,
+          vendor_payment_count: summary.vendor_payment_count || 0,
+          customer_payment_count: summary.customer_payment_count || 0,
+          top_vendors: summary.top_vendors || [],
+          top_customers: summary.top_customers || []
+        });
+        setIsLoading(false);
+      }
+    }) as UnsubscribeFunction;
+    listeners.current.push(summaryUnsubscribe);
+  }, [selectedYear, selectedMonth]);
+
+  // Handle app state changes (background/foreground)
   useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (appState.current.match(/inactive|background/) && nextAppState === 'active') {
+        // App has come to the foreground - refresh data
+        calculateMonthlySummary(selectedYear, selectedMonth);
+      }
+      appState.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [selectedYear, selectedMonth]);
+
+  // Setup listeners when component mounts or when year/month changes
+  useEffect(() => {
+    // Initial loading state
+    setIsLoading(true);
+    
+    // Calculate summary first to ensure it's up-to-date
+    calculateMonthlySummary(selectedYear, selectedMonth).then(() => {
+      // Then setup listeners
+      setupListeners();
+    });
+
     // Auto play the animations when component mounts
     if (animation.current) {
       animation.current.play();
@@ -267,9 +300,26 @@ export default function HomeScreen() {
     if (welcomeAnimation.current) {
       welcomeAnimation.current.play();
     }
-    
-    // Fetch data when component mounts
-    fetchData();
+
+    return () => {
+      // Cleanup listeners when unmounting or when dependencies change
+      if (listeners.current.length > 0) {
+        listeners.current.forEach(unsubscribe => unsubscribe());
+        listeners.current = [];
+      }
+    };
+  }, [selectedYear, selectedMonth, setupListeners]);
+
+  // When component unmounts
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+      // Clean up all listeners
+      if (listeners.current.length > 0) {
+        listeners.current.forEach(unsubscribe => unsubscribe());
+        listeners.current = [];
+      }
+    };
   }, []);
 
   const toggleFab = () => {

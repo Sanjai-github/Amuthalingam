@@ -11,7 +11,8 @@ import {
   where, 
   orderBy, 
   serverTimestamp,
-  collectionGroup
+  collectionGroup,
+  onSnapshot
 } from 'firebase/firestore';
 import { db, auth } from './config';
 
@@ -392,6 +393,59 @@ export const getSingleCustomerOutstandingBalance = async (customerId) => {
   } catch (error) {
     console.error(`Error calculating outstanding balance for customer ${customerId}:`, error);
     return { data: 0, error: error.message };
+  }
+};
+
+/**
+ * Subscribe to customer outstanding balance updates
+ * @param {Function} callback - Callback function to receive updates
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeCustomerOutstandingBalance = (callback) => {
+  try {
+    const userId = getCurrentUserId();
+    const customersRef = collection(db, `users/${userId}/${CUSTOMERS_COLLECTION}`);
+    
+    // Setup a listener on the customers collection
+    const unsubscribe = onSnapshot(customersRef, async (customersSnapshot) => {
+      try {
+        let totalOutstanding = 0;
+        
+        // Process each customer
+        for (const customerDoc of customersSnapshot.docs) {
+          const customerId = customerDoc.id;
+          const transactionsRef = collection(
+            db, 
+            `users/${userId}/${CUSTOMERS_COLLECTION}/${customerId}/${TRANSACTIONS_SUBCOLLECTION}`
+          );
+          
+          // Get all transactions for this customer
+          const transactionsSnapshot = await getDocs(transactionsRef);
+          
+          // Calculate outstanding balance for this customer
+          transactionsSnapshot.forEach(transactionDoc => {
+            const transaction = transactionDoc.data();
+            totalOutstanding += transaction.outstanding_amount || 0;
+          });
+        }
+        
+        // Send the updated balance via callback
+        callback(totalOutstanding);
+      } catch (error) {
+        console.error('Error calculating customer outstanding balance in listener:', error);
+        // Return last known value or 0 on error
+        callback(0);
+      }
+    }, (error) => {
+      console.error('Error in customer outstanding balance listener:', error);
+      callback(0);
+    });
+    
+    return unsubscribe;
+  } catch (error) {
+    console.error('Error setting up customer balance subscription:', error);
+    // Return a no-op unsubscribe function
+    return () => {};
   }
 };
 

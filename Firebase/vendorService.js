@@ -11,7 +11,8 @@ import {
   where, 
   orderBy, 
   serverTimestamp,
-  collectionGroup
+  collectionGroup,
+  onSnapshot
 } from 'firebase/firestore';
 import { db, auth } from './config';
 
@@ -335,6 +336,63 @@ export const deleteVendorTransaction = async (vendorId, transactionId) => {
   } catch (error) {
     console.error('Error deleting vendor transaction:', error);
     return { success: false, error: error.message };
+  }
+};
+
+/**
+ * Subscribe to vendor outstanding balance updates
+ * @param {Function} callback - Callback function to receive updates
+ * @returns {Function} Unsubscribe function
+ */
+export const subscribeVendorOutstandingBalance = (callback) => {
+  try {
+    const userId = getCurrentUserId();
+    const vendorsRef = collection(db, `users/${userId}/${VENDORS_COLLECTION}`);
+    
+    // Setup a listener on the vendors collection
+    const unsubscribe = onSnapshot(vendorsRef, async (vendorsSnapshot) => {
+      try {
+        let totalOutstanding = 0;
+        
+        // Process each vendor
+        for (const vendorDoc of vendorsSnapshot.docs) {
+          const vendorId = vendorDoc.id;
+          const transactionsRef = collection(
+            db, 
+            `users/${userId}/${VENDORS_COLLECTION}/${vendorId}/${TRANSACTIONS_SUBCOLLECTION}`
+          );
+          
+          // Get all transactions for this vendor
+          const transactionsSnapshot = await getDocs(transactionsRef);
+          
+          // Calculate outstanding balance for this vendor
+          let vendorOutstanding = 0;
+          transactionsSnapshot.forEach(transactionDoc => {
+            const transaction = transactionDoc.data();
+            vendorOutstanding += transaction.total_amount || 0;
+          });
+          
+          // Add to total
+          totalOutstanding += vendorOutstanding;
+        }
+        
+        // Send the updated balance via callback
+        callback(totalOutstanding);
+      } catch (error) {
+        console.error('Error calculating vendor outstanding balance in listener:', error);
+        // Return last known value or 0 on error
+        callback(0);
+      }
+    }, (error) => {
+      console.error('Error in vendor outstanding balance listener:', error);
+      callback(0);
+    });
+    
+    return unsubscribe;
+  } catch (error) {
+    console.error('Error setting up vendor balance subscription:', error);
+    // Return a no-op unsubscribe function
+    return () => {};
   }
 };
 
