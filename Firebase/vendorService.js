@@ -365,15 +365,29 @@ export const subscribeVendorOutstandingBalance = (callback) => {
           // Get all transactions for this vendor
           const transactionsSnapshot = await getDocs(transactionsRef);
           
-          // Calculate outstanding balance for this vendor
-          let vendorOutstanding = 0;
+          // Calculate total amount for this vendor
+          let vendorTotal = 0;
           transactionsSnapshot.forEach(transactionDoc => {
             const transaction = transactionDoc.data();
-            vendorOutstanding += transaction.total_amount || 0;
+            vendorTotal += transaction.total_amount || 0;
           });
           
-          // Add to total
-          totalOutstanding += vendorOutstanding;
+          // Get vendor payments
+          const paymentsRef = query(
+            collection(db, `users/${userId}/vendor_payments`),
+            where('vendor_id', '==', vendorId)
+          );
+          
+          const paymentsSnapshot = await getDocs(paymentsRef);
+          
+          // Subtract payments from the total
+          paymentsSnapshot.forEach((paymentDoc) => {
+            const payment = paymentDoc.data();
+            vendorTotal -= payment.amount || 0;
+          });
+          
+          // Add this vendor's outstanding balance to the total (only if positive)
+          totalOutstanding += vendorTotal > 0 ? vendorTotal : 0;
         }
         
         // Send the updated balance via callback

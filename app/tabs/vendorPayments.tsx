@@ -24,6 +24,7 @@ import CustomTabBar from '../../components/CustomTabBar';
 // Import Firebase services
 import { getVendors } from '../../Firebase/vendorService';
 import { getVendorPayments, addVendorPayment, getVendorRemainingBalance } from '../../Firebase/vendorPaymentService.js';
+import { biometricAuth } from '../../Firebase/index';
 
 // Define types for Firebase service responses
 interface FirebaseResponse<T> {
@@ -202,9 +203,36 @@ export default function VendorPaymentsScreen() {
     }
   };
   
-  // Handle adding a payment
+  // Handle adding a payment with biometric verification
   const handleAddPayment = async () => {
     if (!selectedVendor) return;
+    
+    try {
+      // Check if biometric authentication is available and enabled
+      const biometricStatus = await biometricAuth.isBiometricAvailable() as {
+        available: boolean;
+        hasFaceId: boolean;
+        hasFingerprint: boolean;
+        canUse: boolean;
+      };
+      
+      // If biometrics are available, verify before proceeding
+      if (biometricStatus.canUse) {
+        const isEnabled = await biometricAuth.isBiometricLoginEnabled();
+        
+        if (isEnabled) {
+          // Verify identity before proceeding with the payment
+          const verified = await biometricAuth.verifyWithBiometrics('Verify your identity to add payment');
+          if (!verified) {
+            Alert.alert('Authentication Failed', 'Biometric verification failed. Please try again.');
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking biometric status:', error);
+      // Continue with payment process even if biometric check fails
+    }
     
     // Validate inputs
     if (!paymentDate) {

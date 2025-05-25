@@ -26,6 +26,7 @@ import {
   getSingleCustomerOutstandingBalance,
   addPaymentToTransaction 
 } from '../../Firebase/customerService';
+import { biometricAuth } from '../../Firebase/index';
 import { doc, updateDoc } from 'firebase/firestore';
 import { db } from '../../Firebase/config';
 
@@ -386,8 +387,34 @@ export default function CustomersScreen() {
     }
   };
   
-  // Handle adding a payment to a transaction
+  // Handle adding a payment with biometric verification
   const handleAddPayment = async () => {
+    try {
+      // Check if biometric authentication is available and enabled
+      const biometricStatus = await biometricAuth.isBiometricAvailable() as {
+        available: boolean;
+        hasFaceId: boolean;
+        hasFingerprint: boolean;
+        canUse: boolean;
+      };
+      
+      // If biometrics are available, verify before proceeding
+      if (biometricStatus.canUse) {
+        const isEnabled = await biometricAuth.isBiometricLoginEnabled();
+        
+        if (isEnabled) {
+          // Verify identity before proceeding with the payment
+          const verified = await biometricAuth.verifyWithBiometrics('Verify your identity to add payment');
+          if (!verified) {
+            Alert.alert('Authentication Failed', 'Biometric verification failed. Please try again.');
+            return;
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error checking biometric status:', error);
+      // Continue with payment process even if biometric check fails
+    }
     // Determine which customer and transaction to use
     const customer = selectedCustomerForPayment || selectedCustomer;
     const transaction = selectedTransactionForPayment || selectedTransaction;

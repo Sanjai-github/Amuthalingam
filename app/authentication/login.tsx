@@ -12,19 +12,74 @@ import {
   ActivityIndicator
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import LottieView from 'lottie-react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { authService } from '../../Firebase';
+import { authService, biometricAuth } from '../../Firebase';
 import { User } from 'firebase/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams();
   const animation = useRef<LottieView>(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+
+  // Extract redirect and enableBiometric params if present
+  const redirectTo = params.redirect as string | undefined;
+  const shouldEnableBiometric = params.enableBiometric === 'true';
+
+  // Check if biometrics are available and enabled
+  useEffect(() => {
+    const checkBiometrics = async () => {
+      try {
+        const biometricStatus = await biometricAuth.isBiometricAvailable() as {
+          available: boolean;
+          hasFaceId: boolean;
+          hasFingerprint: boolean;
+          canUse: boolean;
+        };
+        setBiometricSupported(biometricStatus.canUse);
+        
+        if (biometricStatus.canUse) {
+          const isEnabled = await biometricAuth.isBiometricLoginEnabled();
+          setBiometricEnabled(isEnabled);
+        }
+      } catch (error) {
+        console.error('Error checking biometrics:', error);
+      }
+    };
+    
+    checkBiometrics();
+    
+    // If we have biometric support and the login page was opened from settings to enable biometrics,
+    // attempt a biometric verification after login
+    if (biometricSupported && shouldEnableBiometric) {
+      // Show an info message that biometric login will be set up after successful login
+      Alert.alert(
+        'Biometric Setup',
+        'After successful login, you will be prompted to set up biometric authentication.'
+      );
+    }
+  }, [biometricSupported, shouldEnableBiometric]);
+
+  const handleBiometricLogin = async () => {
+    try {
+      setIsLoading(true);
+      await biometricAuth.authenticateWithBiometrics();
+      // If biometric authentication is successful, navigate to home
+      router.replace('/tabs/home');
+    } catch (error) {
+      console.error('Biometric authentication error:', error);
+      Alert.alert('Authentication Error', 'Biometric authentication failed. Please try again or use password.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const handleLogin = async () => {
     if (!email || !password) {
@@ -45,6 +100,52 @@ export default function LoginScreen() {
       
       console.log('User logged in successfully:', user.uid);
       // Navigate to home after successful login
+      // If coming from settings to enable biometric, or if user hasn't enabled it yet
+      if (biometricSupported && (!biometricEnabled || shouldEnableBiometric)) {
+        try {
+          if (shouldEnableBiometric) {
+            // User came from settings specifically to enable biometrics
+            await biometricAuth.enableBiometricLogin(email, password);
+            setBiometricEnabled(true);
+            Alert.alert(
+              'Biometric Login Enabled',
+              'You can now use your fingerprint or face ID to log in.',
+              [{ text: 'OK', onPress: () => {
+                // Navigate back to the screen they came from (or home)
+                if (redirectTo) {
+                  router.replace(redirectTo as any);
+                } else {
+                  router.replace('/tabs/home');
+                }
+              }}]
+            );
+          } else {
+            // Ask if they want to enable it during normal login
+            Alert.alert(
+              'Enable Biometric Login',
+              'Would you like to enable biometric login for faster access next time?',
+              [
+                { text: 'Not Now', style: 'cancel' },
+                { 
+                  text: 'Enable', 
+                  onPress: async () => {
+                    try {
+                      await biometricAuth.enableBiometricLogin(email, password);
+                      Alert.alert('Success', 'Biometric login has been enabled.');
+                    } catch (error) {
+                      console.error('Error enabling biometric login:', error);
+                      Alert.alert('Error', 'Could not enable biometric login. Please try again later.');
+                    }
+                  }
+                }
+              ]
+            );
+          }
+        } catch (error) {
+          console.error('Error handling biometric setup:', error);
+        }
+      }
+      
       router.replace('/tabs/home');
     } catch (error) {
       console.error('Login error:', error);
@@ -158,6 +259,18 @@ export default function LoginScreen() {
         </TouchableOpacity>
         
 
+
+        {/* Biometric Login Button */}
+        {biometricSupported && biometricEnabled && (
+          <TouchableOpacity 
+            style={styles.biometricButton}
+            onPress={handleBiometricLogin}
+            disabled={isLoading}
+          >
+            <Ionicons name="finger-print-outline" size={28} color="#f97316" />
+            <Text style={styles.biometricButtonText}>Login with Biometrics</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Sign Up Link */}
         <View style={styles.signUpContainer}>
@@ -280,5 +393,23 @@ const styles = StyleSheet.create({
     color: '#d88c9a',
     fontWeight: 'bold',
     marginLeft: 5,
+  },
+  biometricButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 10,
+    marginBottom: 15,
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#f97316',
+  },
+  biometricButtonText: {
+    marginLeft: 10,
+    color: '#f97316',
+    fontSize: 16,
+    fontWeight: '500',
   },
 });

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   View, 
   Text, 
@@ -24,6 +24,7 @@ import { getMonthlySummary } from '../../Firebase/summaryService';
 import { getVendors, getVendorTransactions } from '../../Firebase/vendorService';
 import { getCustomers, getCustomerTransactions } from '../../Firebase/customerService';
 import { getVendorPayments } from '../../Firebase/vendorPaymentService';
+import { biometricAuth } from '../../Firebase';
 
 // Type definitions now in react-native-html-to-pdf.d.ts
 
@@ -46,6 +47,8 @@ export default function SettingsScreen() {
   const [notifications, setNotifications] = useState(true);
   const [autoBackup, setAutoBackup] = useState(true);
   const [currency, setCurrency] = useState('₹');
+  const [biometricSupported, setBiometricSupported] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
   
   // Reset state
   const [isResetting, setIsResetting] = useState(false);
@@ -56,10 +59,72 @@ export default function SettingsScreen() {
   const [exportType, setExportType] = useState('');
   const [timePeriod, setTimePeriod] = useState('monthly'); // 'monthly', 'quarterly', 'yearly'
 
+  // Check if biometrics are available and enabled
+  useEffect(() => {
+    const checkBiometrics = async () => {
+      try {
+        const biometricStatus = await biometricAuth.isBiometricAvailable() as {
+          available: boolean;
+          hasFaceId: boolean;
+          hasFingerprint: boolean;
+          canUse: boolean;
+        };
+        setBiometricSupported(biometricStatus.available && (biometricStatus.hasFingerprint || biometricStatus.hasFaceId));
+        
+        if (biometricSupported) {
+          const isEnabled = await biometricAuth.isBiometricLoginEnabled();
+          setBiometricEnabled(isEnabled);
+        }
+      } catch (error) {
+        console.error('Error checking biometrics:', error);
+      }
+    };
+    
+    checkBiometrics();
+  }, [biometricSupported]);
+
   // Handle theme toggle
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
     // In a real app, you would apply the theme change here
+  };
+  
+  // Handle biometric toggle
+  const toggleBiometric = async () => {
+    try {
+      if (biometricEnabled) {
+        // Disable biometric login
+        await biometricAuth.disableBiometricLogin();
+        setBiometricEnabled(false);
+        Alert.alert('Biometric Login Disabled', 'Biometric login has been turned off.');
+      } else {
+        // Verify with biometrics before enabling
+        const success = await biometricAuth.verifyWithBiometrics('Verify to enable biometric login');
+        
+        if (success) {
+          Alert.alert(
+            'Enable Biometric Login',
+            'To enable biometric login, you need to sign in again with your credentials.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { 
+                text: 'Sign in', 
+                onPress: () => {
+                  // Navigate to login screen with redirect back to settings after login
+                  router.push({
+                    pathname: '/authentication/login',
+                    params: { enableBiometric: 'true', redirect: '/tabs/settings' }
+                  });
+                }
+              }
+            ]
+          );
+        }
+      }
+    } catch (error) {
+      console.error('Error toggling biometric authentication:', error);
+      Alert.alert('Error', 'Could not change biometric settings. Please try again.');
+    }
   };
 
   // Handle backup
@@ -143,6 +208,29 @@ export default function SettingsScreen() {
     try {
       setIsResetting(true);
       setResetOption(option);
+      
+      // Check if biometric authentication is available and enabled
+      const biometricStatus = await biometricAuth.isBiometricAvailable() as {
+        available: boolean;
+        hasFaceId: boolean;
+        hasFingerprint: boolean;
+        canUse: boolean;
+      };
+      
+      // If biometrics are available, verify before proceeding with data reset
+      if (biometricStatus.canUse) {
+        const isEnabled = await biometricAuth.isBiometricLoginEnabled();
+        
+        if (isEnabled) {
+          // Verify identity before proceeding with the payment
+          const verified = await biometricAuth.verifyWithBiometrics('Verify your identity to reset data');
+          if (!verified) {
+            Alert.alert('Authentication Failed', 'Biometric verification failed. Please try again.');
+            setIsResetting(false);
+            return;
+          }
+        }
+      }
       
       let result: ResetResponse;
       
@@ -284,6 +372,24 @@ export default function SettingsScreen() {
               thumbColor="#ffffff"
             />
           </View>
+          
+          {/* Biometric Authentication Toggle */}
+          {biometricSupported && (
+            <View className="flex-row justify-between items-center p-4 border-b border-gray-100">
+              <View className="flex-row items-center">
+                <View className="bg-gray-100 p-2 rounded-full mr-3">
+                  <Ionicons name="finger-print-outline" size={20} color="#374151" />
+                </View>
+                <Text className="text-gray-800 font-medium">Biometric Login</Text>
+              </View>
+              <Switch
+                value={biometricEnabled}
+                onValueChange={toggleBiometric}
+                trackColor={{ false: "#e5e7eb", true: "#d88c9a" }}
+                thumbColor="#ffffff"
+              />
+            </View>
+          )}
           
           {/* Currency Selection */}
           <TouchableOpacity 
