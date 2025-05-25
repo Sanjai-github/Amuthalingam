@@ -1,8 +1,9 @@
-import { Text, View, TouchableOpacity, StyleSheet, Dimensions, Animated } from "react-native";
+import { Text, View, TouchableOpacity, StyleSheet, Dimensions, Animated, Alert } from "react-native";
 import { useRouter } from "expo-router";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import LottieView from "lottie-react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { biometricAuth } from "../Firebase";
 import "../global.css";
 
 export default function SplashScreen() {
@@ -33,9 +34,52 @@ export default function SplashScreen() {
     ]).start();
   }, []);
 
-  const handleGetStarted = () => {
-    // Navigate to home screen
-    router.push("/authentication/login");
+  const [isBiometricChecking, setIsBiometricChecking] = useState(false);
+
+  // Define TypeScript interface for biometric availability response
+  interface BiometricAvailability {
+    available: boolean;
+    hasFaceId: boolean;
+    hasFingerprint: boolean;
+    canUse: boolean;
+  }
+
+  const handleGetStarted = async () => {
+    // Prevent multiple taps
+    if (isBiometricChecking) return;
+    
+    setIsBiometricChecking(true);
+    
+    try {
+      // Check if biometric authentication is available on this device
+      const biometricAvailability = await biometricAuth.isBiometricAvailable() as BiometricAvailability;
+      
+      if (biometricAvailability.available && biometricAvailability.canUse) {
+        // Show biometric prompt - function returns true if authentication succeeds
+        const authenticated = await biometricAuth.authenticateWithBiometrics();
+        
+        if (authenticated) {
+          // Navigate to login screen after successful authentication
+          router.push("/authentication/login");
+        } else {
+          // Authentication failed
+          Alert.alert(
+            "Authentication Failed", 
+            "Please try again or use your credentials to login.",
+            [{ text: "OK", onPress: () => router.push("/authentication/login") }]
+          );
+        }
+      } else {
+        // Biometric authentication not available, proceed to login
+        router.push("/authentication/login");
+      }
+    } catch (error) {
+      console.error('Error during biometric authentication:', error);
+      // Proceed to login in case of any errors
+      router.push("/authentication/login");
+    } finally {
+      setIsBiometricChecking(false);
+    }
   };
 
   return (

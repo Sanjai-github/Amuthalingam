@@ -54,9 +54,39 @@ export const getVendors = async () => {
     const querySnapshot = await getDocs(vendorsRef);
     
     const vendors = [];
-    querySnapshot.forEach((doc) => {
-      vendors.push({ id: doc.id, ...doc.data() });
-    });
+    
+    // Get all vendors with their basic data
+    for (const doc of querySnapshot.docs) {
+      const vendorData = doc.data();
+      const vendorId = doc.id;
+      
+      // Get all transactions for this vendor to calculate total spent
+      const transactionsRef = collection(
+        db, 
+        `users/${userId}/${VENDORS_COLLECTION}/${vendorId}/${TRANSACTIONS_SUBCOLLECTION}`
+      );
+      const transactionsSnapshot = await getDocs(transactionsRef);
+      
+      // Calculate total spent from all transactions
+      let totalSpent = 0;
+      transactionsSnapshot.forEach((transactionDoc) => {
+        const transaction = transactionDoc.data();
+        totalSpent += transaction.total_amount || 0;
+      });
+      
+      // Update the vendor document with the calculated total spent
+      await updateDoc(doc.ref, {
+        totalSpent: totalSpent,
+        updatedAt: serverTimestamp()
+      });
+      
+      // Add to vendors array with updated data
+      vendors.push({
+        id: vendorId,
+        ...vendorData,
+        totalSpent: totalSpent
+      });
+    }
     
     return { data: vendors, error: null };
   } catch (error) {

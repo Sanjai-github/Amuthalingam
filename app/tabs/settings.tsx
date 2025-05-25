@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
   Text, 
@@ -8,8 +8,13 @@ import {
   Alert,
   Linking,
   ActivityIndicator,
-  Share
+  Share,
+  Modal,
+  TextInput,
+  Platform,
+  StyleSheet
 } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
@@ -25,6 +30,8 @@ import { getVendors, getVendorTransactions } from '../../Firebase/vendorService'
 import { getCustomers, getCustomerTransactions } from '../../Firebase/customerService';
 import { getVendorPayments } from '../../Firebase/vendorPaymentService';
 import { biometricAuth } from '../../Firebase';
+import { auth } from '../../Firebase/config';
+import { signInWithEmailAndPassword } from 'firebase/auth';
 
 // Type definitions now in react-native-html-to-pdf.d.ts
 
@@ -49,6 +56,12 @@ export default function SettingsScreen() {
   const [currency, setCurrency] = useState('₹');
   const [biometricSupported, setBiometricSupported] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Password modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [password, setPassword] = useState('');
+  const [currentUserEmail, setCurrentUserEmail] = useState('');
   
   // Reset state
   const [isResetting, setIsResetting] = useState(false);
@@ -102,29 +115,60 @@ export default function SettingsScreen() {
         const success = await biometricAuth.verifyWithBiometrics('Verify to enable biometric login');
         
         if (success) {
-          Alert.alert(
-            'Enable Biometric Login',
-            'To enable biometric login, you need to sign in again with your credentials.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              { 
-                text: 'Sign in', 
-                onPress: () => {
-                  // Navigate to login screen with redirect back to settings after login
-                  router.push({
-                    pathname: '/authentication/login',
-                    params: { enableBiometric: 'true', redirect: '/tabs/settings' }
-                  });
-                }
-              }
-            ]
-          );
+          try {
+            // Get current user's email (should already be authenticated)
+            const currentUser = auth.currentUser;
+            if (!currentUser || !currentUser.email) {
+              throw new Error('User not authenticated or missing email');
+            }
+            
+            // Show password input modal
+            setCurrentUserEmail(currentUser.email);
+            setShowPasswordModal(true);
+            
+          } catch (error) {
+            console.error('Error getting current user:', error);
+            Alert.alert('Error', 'Could not retrieve user information. Please try again.');
+          }
         }
       }
     } catch (error) {
       console.error('Error toggling biometric authentication:', error);
       Alert.alert('Error', 'Could not change biometric settings. Please try again.');
     }
+  };
+  
+  // Handle password confirmation
+  const handlePasswordConfirm = async () => {
+    if (!password.trim()) {
+      Alert.alert('Error', 'Password cannot be empty');
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      // Verify credentials by reauthenticating
+      await signInWithEmailAndPassword(auth, currentUserEmail, password);
+      
+      // Enable biometric login with the verified credentials
+      await biometricAuth.enableBiometricLogin(currentUserEmail, password);
+      setBiometricEnabled(true);
+      setShowPasswordModal(false);
+      setPassword(''); // Clear password
+      Alert.alert('Success', 'Biometric login has been enabled!');
+    } catch (error) {
+      console.error('Error enabling biometric login:', error);
+      Alert.alert('Error', 'Invalid password or authentication failed. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  
+  // Handle password modal cancel
+  const handlePasswordCancel = () => {
+    setShowPasswordModal(false);
+    setPassword(''); // Clear password
   };
 
   // Handle backup
@@ -327,9 +371,119 @@ export default function SettingsScreen() {
     );
   };
 
+  // Define styles for the modal
+  const styles = StyleSheet.create({
+    centeredView: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: 'rgba(0,0,0,0.5)'
+    },
+    modalView: {
+      margin: 20,
+      backgroundColor: 'white',
+      borderRadius: 20,
+      padding: 35,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: {
+        width: 0,
+        height: 2
+      },
+      shadowOpacity: 0.25,
+      shadowRadius: 4,
+      elevation: 5,
+      width: '80%'
+    },
+    input: {
+      height: 50,
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 10,
+      padding: 10,
+      width: '100%',
+      marginTop: 20,
+      marginBottom: 20
+    },
+    buttonContainer: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      width: '100%'
+    },
+    button: {
+      borderRadius: 10,
+      padding: 10,
+      elevation: 2,
+      minWidth: 100,
+      alignItems: 'center'
+    },
+    buttonCancel: {
+      backgroundColor: '#ddd',
+    },
+    buttonConfirm: {
+      backgroundColor: '#4CAF50',
+    },
+    textStyle: {
+      color: 'white',
+      fontWeight: 'bold',
+      textAlign: 'center'
+    },
+    cancelText: {
+      color: '#333',
+    },
+    modalTitle: {
+      marginBottom: 15,
+      textAlign: 'center',
+      fontWeight: 'bold',
+      fontSize: 18
+    }
+  });
+
   return (
     <View className="flex-1" style={{ backgroundColor: '#f5e9e2' }}>
       <StatusBar style="dark" />
+      
+      {/* Password Confirm Modal */}
+      <Modal
+        visible={showPasswordModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handlePasswordCancel}
+      >
+        <View style={styles.centeredView}>
+          <View style={styles.modalView}>
+            <Text style={styles.modalTitle}>Confirm Password</Text>
+            <Text>Please enter your password to enable biometric login:</Text>
+            <TextInput
+              style={styles.input}
+              secureTextEntry
+              value={password}
+              onChangeText={setPassword}
+              placeholder="Enter your password"
+              autoCapitalize="none"
+              autoComplete="password"
+            />
+            {isLoading ? (
+              <ActivityIndicator size="large" color="#4CAF50" />
+            ) : (
+              <View style={styles.buttonContainer}>
+                <TouchableOpacity
+                  style={[styles.button, styles.buttonCancel]}
+                  onPress={handlePasswordCancel}
+                >
+                  <Text style={[styles.textStyle, styles.cancelText]}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.button, styles.buttonConfirm]}
+                  onPress={handlePasswordConfirm}
+                >
+                  <Text style={styles.textStyle}>Confirm</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        </View>
+      </Modal>
       
       {/* Header */}
       <View className="bg-white pt-16 pb-4 px-4 shadow-sm">
